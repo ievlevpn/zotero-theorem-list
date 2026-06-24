@@ -15,6 +15,20 @@ const KEYWORDS = [
 ];
 const HEADER_RE = new RegExp("^(" + KEYWORDS.join("|") + ")\\s*(\\d|\\()", "i");
 
+// Split a matched line into a clean header ("Theorem 3.1 (Name)") and the
+// remaining statement text (shown dimmed for context).
+const HEAD_SPLIT_RE = new RegExp(
+	"^(" + KEYWORDS.join("|") + ")\\s*(\\d[\\d.]*)?\\s*(\\([^)]*\\))?\\s*(.*)$", "i");
+
+function splitHeader(text) {
+	const m = text.match(HEAD_SPLIT_RE);
+	if (!m) return { head: text, rest: "" };
+	const num = (m[2] || "").replace(/\.+$/, ""); // drop trailing "." of "3.1."
+	const head = [m[1], num, m[3]].filter(Boolean).join(" ");
+	const rest = (m[4] || "").replace(/^[.:)\s]+/, "").trim();
+	return { head, rest };
+}
+
 let onRenderToolbar; // kept for unregister on shutdown
 let openPanel; // { el, onDown, doc } of the single open popup, or null
 
@@ -73,10 +87,28 @@ function togglePanel(reader, doc, btn) {
 		}
 		for (const it of items) {
 			const r = doc.createElement("div");
-			r.textContent = `p.${it.pageIndex + 1} ${it.label}`;
-			r.style.cssText = "padding:5px 10px;cursor:pointer;overflow-wrap:anywhere;";
-			r.addEventListener("mouseenter", () => { r.style.background = "Highlight"; r.style.color = "HighlightText"; });
-			r.addEventListener("mouseleave", () => { r.style.background = ""; r.style.color = ""; });
+			r.style.cssText = "padding:6px 10px;cursor:pointer;overflow-wrap:anywhere;";
+
+			const head = doc.createElement("div");
+			head.textContent = `p.${it.pageIndex + 1}  ${it.head}`;
+			r.append(head);
+
+			let sub = null;
+			if (it.rest) {
+				sub = doc.createElement("div");
+				sub.textContent = it.rest;
+				sub.style.cssText = "font-size:11px;color:GrayText;margin-top:1px;line-height:1.3;";
+				r.append(sub);
+			}
+
+			r.addEventListener("mouseenter", () => {
+				r.style.background = "Highlight"; r.style.color = "HighlightText";
+				if (sub) sub.style.color = "HighlightText";
+			});
+			r.addEventListener("mouseleave", () => {
+				r.style.background = ""; r.style.color = "";
+				if (sub) sub.style.color = "GrayText";
+			});
 			r.addEventListener("click", () => {
 				reader.navigate({ position: { pageIndex: it.pageIndex, rects: it.rects } });
 				closePanel();
@@ -153,7 +185,8 @@ async function extractTheorems(reader) {
 		if (!chars || !chars.length) continue;
 		for (const line of charsToLines(chars)) {
 			if (HEADER_RE.test(line.text)) {
-				out.push({ label: line.text.slice(0, 90), pageIndex: i, rects: [line.rect] });
+				const { head, rest } = splitHeader(line.text);
+				out.push({ head, rest: rest.slice(0, 200), pageIndex: i, rects: [line.rect] });
 			}
 		}
 	}
@@ -193,4 +226,4 @@ function charsToLines(chars) {
 }
 
 // node-only: lets test.js import the pure helpers; no-op inside Zotero.
-if (typeof module !== "undefined") module.exports = { charsToLines, HEADER_RE };
+if (typeof module !== "undefined") module.exports = { charsToLines, splitHeader, HEADER_RE };
