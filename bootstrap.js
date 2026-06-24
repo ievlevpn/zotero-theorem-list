@@ -75,6 +75,7 @@ let onRenderToolbar; // kept for unregister on shutdown
 let openPanel; // { el, cleanup } of the single open popup, or null
 // UI state persisted across popup opens (and across documents).
 let colorOn = false;        // "Color by type" toggle
+let pinned = false;         // when on, panel survives jumps and outside clicks
 let savedQuery = "";        // fuzzy filter text
 const savedHidden = new Set(); // type names toggled off
 
@@ -186,12 +187,21 @@ function buildUI(doc, panel, reader, items) {
 	colorCb.addEventListener("change", () => { colorOn = colorCb.checked; render(); });
 	colorLabel.append(colorCb, doc.createTextNode("Color by type"));
 
+	const pin = doc.createElement("button");
+	pin.title = "Pin: keep open on jump and outside click";
+	const paintPin = () => {
+		pin.textContent = pinned ? "📌 Pinned" : "📍 Pin";
+		pin.style.cssText = `font:11px sans-serif;padding:2px 8px;border-radius:10px;cursor:pointer;border:1px solid GrayText;background:${pinned ? "Highlight" : "transparent"};color:${pinned ? "HighlightText" : "CanvasText"};`;
+	};
+	paintPin();
+	pin.addEventListener("click", () => { pinned = !pinned; paintPin(); });
+
 	const count = doc.createElement("span");
 	count.style.cssText = "font:11px sans-serif;color:GrayText;";
 
 	const bottom = doc.createElement("div");
 	bottom.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:8px;";
-	bottom.append(colorLabel, count);
+	bottom.append(colorLabel, pin, count);
 	controls.append(bottom);
 
 	panel.append(controls);
@@ -304,6 +314,7 @@ function makePanel(reader, doc, btn) {
 	doc.body.append(panel);
 
 	const onDown = (e) => {
+		if (pinned) return; // pinned → stay open even when clicking the PDF
 		if (!panel.contains(e.target) && e.target !== btn) closePanel();
 	};
 	const onKey = (e) => {
@@ -341,7 +352,7 @@ function closePanel() {
 
 function jumpTo(reader, it) {
 	reader.navigate({ position: { pageIndex: it.pageIndex, rects: it.rects } });
-	closePanel();
+	if (!pinned) closePanel();
 }
 
 // --- PDF scanning ----------------------------------------------------------
