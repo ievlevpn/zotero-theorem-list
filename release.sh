@@ -34,9 +34,19 @@ git add manifest.json bootstrap.js update.json
 git commit -m "Release v$VER" || echo "(nothing to commit)"
 git push
 
-gh release create "v$VER" "$XPI" -t "v$VER" \
-  -n "Install: download \`theorem-list.xpi\` below, then Zotero → Tools → Plugins → ⚙ → Install Plugin From File…
+# Changelog = commits since the previous tag (drop the "Release vX" commits).
+PREV=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+RANGE=${PREV:+$PREV..HEAD}
+CHANGES=$(git log --no-merges --pretty='- %s' $RANGE | grep -v '^- Release v' || true)
+[ -z "$CHANGES" ] && CHANGES="- Initial release"
 
-Existing installs (v0.4.1+) update automatically."
+NOTES="## What's changed
+$CHANGES
+
+---
+Install: download \`theorem-list.xpi\` below → Zotero → Tools → Plugins → ⚙ → Install Plugin From File…
+Existing installs update automatically."
+
+gh release create "v$VER" "$XPI" -t "v$VER" -n "$NOTES"
 
 echo "released v$VER"
