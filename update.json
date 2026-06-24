@@ -1,0 +1,17 @@
+{
+  "addons": {
+    "theorem-list@local": {
+      "updates": [
+        {
+          "version": "0.4.1",
+          "update_link": "https://github.com/ievlevpn/zotero-theorem-list/releases/download/v0.4.1/theorem-list.xpi",
+          "applications": {
+            "zotero": {
+              "strict_min_version": "6.999"
+            }
+          }
+        }
+      ]
+    }
+  }
+}
