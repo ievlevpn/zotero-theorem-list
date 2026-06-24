@@ -73,7 +73,10 @@ function fuzzy(q, text) {
 
 let onRenderToolbar; // kept for unregister on shutdown
 let openPanel; // { el, cleanup } of the single open popup, or null
-let colorOn = false; // "Color by type" toggle, persisted across opens
+// UI state persisted across popup opens (and across documents).
+let colorOn = false;        // "Color by type" toggle
+let savedQuery = "";        // fuzzy filter text
+const savedHidden = new Set(); // type names toggled off
 
 function startup({ id }) {
 	onRenderToolbar = (event) => renderButton(event);
@@ -134,8 +137,7 @@ function togglePanel(reader, doc, btn) {
 function buildUI(doc, panel, reader, items) {
 	panel.replaceChildren();
 	const types = [...new Set(items.map((it) => it.type))];
-	const hidden = new Set();
-	let query = "";
+	const hidden = savedHidden; // shared Set → toggles persist across opens
 
 	const controls = doc.createElement("div");
 	controls.style.cssText = "position:sticky;top:0;z-index:1;background:Canvas;padding:6px 8px;border-bottom:1px solid GrayText;display:flex;flex-direction:column;gap:6px;";
@@ -144,7 +146,8 @@ function buildUI(doc, panel, reader, items) {
 	search.type = "search";
 	search.placeholder = "Fuzzy filter…";
 	search.style.cssText = "width:100%;box-sizing:border-box;padding:3px 6px;font:13px sans-serif;";
-	search.addEventListener("input", () => { query = search.value; render(); });
+	search.value = savedQuery;
+	search.addEventListener("input", () => { savedQuery = search.value; render(); });
 	// Don't let typed keys trigger reader shortcuts; keep Escape working.
 	search.addEventListener("keydown", (e) => {
 		if (e.key === "Escape") return; // let it bubble so the panel closes
@@ -212,7 +215,7 @@ function buildUI(doc, panel, reader, items) {
 
 	const render = () => {
 		list.replaceChildren();
-		const q = query.trim().toLowerCase();
+		const q = savedQuery.trim().toLowerCase();
 		shown = items.filter((it) =>
 			!hidden.has(it.type) && fuzzy(q, (it.head + " " + it.rest).toLowerCase()));
 		count.textContent = `${shown.length} / ${items.length}`;
