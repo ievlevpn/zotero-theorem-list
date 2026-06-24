@@ -188,7 +188,13 @@ function makeRow(doc, reader, it) {
 	r.style.cssText = base;
 
 	const head = doc.createElement("div");
-	head.textContent = `p.${it.pageIndex + 1}  ${it.head}`;
+	const pg = doc.createElement("span");
+	pg.textContent = `p.${it.pageIndex + 1}  `;
+	pg.style.cssText = "font-size:11px;opacity:.7;"; // inherits color so hover stays readable
+	const label = doc.createElement("span");
+	label.textContent = it.head;
+	label.style.fontWeight = "700";
+	head.append(pg, label);
 	r.append(head);
 
 	let sub = null;
