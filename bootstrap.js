@@ -74,7 +74,7 @@ function togglePanel(reader, doc, btn) {
 		for (const it of items) {
 			const r = doc.createElement("div");
 			r.textContent = `p.${it.pageIndex + 1} ${it.label}`;
-			r.style.cssText = "padding:5px 10px;cursor:pointer;white-space:nowrap;";
+			r.style.cssText = "padding:5px 10px;cursor:pointer;overflow-wrap:anywhere;";
 			r.addEventListener("mouseenter", () => { r.style.background = "Highlight"; r.style.color = "HighlightText"; });
 			r.addEventListener("mouseleave", () => { r.style.background = ""; r.style.color = ""; });
 			r.addEventListener("click", () => {
@@ -88,7 +88,7 @@ function togglePanel(reader, doc, btn) {
 		if (!openPanel || openPanel.el !== panel) return;
 		panel.replaceChildren();
 		row.textContent = "Error: " + ((e && e.message) || String(e));
-		row.style.cssText = "padding:6px 10px;color:GrayText;white-space:normal;max-width:340px;";
+		row.style.cssText = "padding:6px 10px;color:CanvasText;white-space:normal;overflow-wrap:anywhere;";
 		panel.append(row);
 	});
 }
@@ -96,10 +96,15 @@ function togglePanel(reader, doc, btn) {
 function makePanel(doc, btn) {
 	const panel = doc.createElement("div");
 	const rect = btn.getBoundingClientRect();
+	const vw = (doc.defaultView && doc.defaultView.innerWidth) || 800;
+	const W = 360;
+	const left = Math.max(8, Math.min(rect.left, vw - W - 8)); // keep on screen
 	panel.style.cssText = [
 		"position:fixed",
 		`top:${rect.bottom + 4}px`,
-		`left:${rect.left}px`,
+		`left:${left}px`,
+		`width:${W}px`,
+		"box-sizing:border-box",
 		"z-index:99999",
 		"background:Canvas",
 		"color:CanvasText",
@@ -107,8 +112,8 @@ function makePanel(doc, btn) {
 		"border-radius:6px",
 		"box-shadow:0 2px 10px rgba(0,0,0,.25)",
 		"max-height:70vh",
-		"overflow:auto",
-		"min-width:240px",
+		"overflow-y:auto",
+		"overflow-x:hidden",
 		"font:13px sans-serif",
 		"padding:4px 0",
 	].join(";");
