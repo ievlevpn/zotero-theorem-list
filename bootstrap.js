@@ -138,14 +138,18 @@ function closePanel() {
 
 async function extractTheorems(reader) {
 	if (reader.__theorems) return reader.__theorems; // cache: PDF text never changes
-	const app = reader?._internalReader?._primaryView?._iframeWindow?.PDFViewerApplication;
-	const pdf = app?.pdfDocument;
+	const win = reader?._internalReader?._primaryView?._iframeWindow;
+	const pdf = win?.PDFViewerApplication?.pdfDocument;
 	if (!pdf) return null; // not a PDF, or reader not ready
 
+	const Cu = Components.utils;
 	const out = [];
 	for (let i = 0; i < pdf.numPages; i++) {
 		// Zotero's pdf.js fork: structured text per page, not getTextContent().
-		const { chars } = await pdf.getPageData({ pageIndex: i });
+		// The arg must be built in the reader's window or it can't be cloned to
+		// the pdf.js worker; waive Xrays to read the returned char objects.
+		const data = Cu.waiveXrays(await pdf.getPageData(Cu.cloneInto({ pageIndex: i }, win)));
+		const chars = data && data.chars;
 		if (!chars || !chars.length) continue;
 		for (const line of charsToLines(chars)) {
 			if (HEADER_RE.test(line.text)) {
