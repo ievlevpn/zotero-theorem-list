@@ -37,9 +37,11 @@ folder, then restart Zotero.
 
 ## Caveats
 
-- Detection is heuristic: a header must start a line with a keyword followed by
-  a number or `(`. Unnumbered headers (`Theorem.`) won't match; a keyword
-  wrapped mid-line into the start of a new line could false-positive.
+- Detection is heuristic and font-aware: a **bold** keyword counts as a header
+  even without a number (catches `Theorem.`, `Theorem A.1`, `Theorem IV`); a
+  non-bold keyword must be followed by a number/letter *and* a header-shaped
+  continuation, which drops in-text cross-references (`…by Theorem 3.1 we…`) and
+  table-of-contents entries. Tune `KEYWORDS` / `classify` in `bootstrap.js`.
 - Uses the reader's internal `_internalReader._primaryView` to reach pdf.js,
   which is not a documented API — may need a touch-up across major Zotero updates.
 - PDF-only (no EPUB/snapshot).

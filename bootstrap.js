@@ -6,14 +6,11 @@
  * symlink it into Zotero's extensions dir) — see README.md.
  */
 
-// Keywords that start a theorem-like environment. Edit to taste.
-// ponytail: line must start with one of these followed by a number or "(" —
-// cuts mid-sentence cross-refs ("...by Theorem 3.1...") that don't begin a line.
+// Environment keywords to list. Edit to taste (add Notation, Problem, …).
 const KEYWORDS = [
 	"Theorem", "Lemma", "Proposition", "Corollary",
 	"Definition", "Remark", "Claim", "Conjecture", "Example", "Assumption",
 ];
-const HEADER_RE = new RegExp("^(" + KEYWORDS.join("|") + ")\\s*(\\d|\\()", "i");
 
 // Pastel background per type for the optional "Color by type" mode.
 const TYPE_COLORS = {
@@ -24,18 +21,43 @@ const TYPE_COLORS = {
 };
 const FALLBACK_COLOR = "#eeeeee";
 
-// Split a matched line into type, a clean header ("Theorem 3.1 (Name)") and
-// the remaining statement text (shown dimmed for context).
-const HEAD_SPLIT_RE = new RegExp(
-	"^(" + KEYWORDS.join("|") + ")\\s*(\\d[\\d.]*)?\\s*(\\([^)]*\\))?\\s*(.*)$", "i");
+// A label after the keyword: "3.1", "1.2.3", "A.1", "B", roman "IV", or none.
+// (Standalone letters/roman use a negative lookahead so "About"/"In" aren't labels.)
+const LABEL_RE = /^[ \t]*(\d+(?:\.\d+)*|[A-Z](?:\.\d+)+|[IVXLC]+(?![a-z])|[A-Z](?![a-z]))?[ \t]*/;
 
-function splitHeader(text) {
-	const m = text.match(HEAD_SPLIT_RE);
-	if (!m) return { type: "", head: text, rest: "" };
-	const type = KEYWORDS.find((k) => k.toLowerCase() === m[1].toLowerCase()) || m[1];
-	const num = (m[2] || "").replace(/\.+$/, ""); // drop trailing "." of "3.1."
-	const head = [type, num, m[3]].filter(Boolean).join(" ");
-	const rest = (m[4] || "").replace(/^[.:)\s]+/, "").trim();
+// Decide whether a reconstructed line is a theorem header, and split it.
+// `bold` = is the line's leading keyword set in a bold font?
+//
+// Two regimes, tuned against real PDFs:
+//  - bold label  → trust it; number optional (catches "Theorem.", "Theorem A.1"),
+//    but reject "Theorem proving"-style section titles (keyword + lowercase word).
+//  - plain label → require a number/letter AND a header-shaped continuation
+//    (not a lowercase word or comma) → drops cross-refs like "Theorem 3.1 we show".
+// Dotted leaders ("Theorem 3.1 ...... 45") are table-of-contents entries → drop.
+function classify(text, bold) {
+	if (/\.\s*\.\s*\./.test(text)) return null; // TOC leader dots
+	const w = text.match(/^[A-Za-z]+/);
+	if (!w) return null;
+	const type = KEYWORDS.find((k) => k.toLowerCase() === w[0].toLowerCase());
+	if (!type) return null;
+
+	const afterKw = text.slice(w[0].length);
+	const lm = afterKw.match(LABEL_RE);
+	const label = (lm && lm[1]) || "";
+	let after = afterKw.slice(lm[0].length);
+
+	let name = "";
+	const pm = after.match(/^\(([^)]*)\)/);
+	if (pm) { name = pm[0]; after = after.slice(pm[0].length); }
+
+	const next = after.replace(/^\s+/, "").charAt(0);
+	const headerLike = bold
+		? (!!label || !!name || next === "" || /[.:(]/.test(next) || /[A-Z]/.test(next))
+		: ((!!label || !!name) && next !== "" && !/[a-z,;]/.test(next));
+	if (!headerLike) return null;
+
+	const head = [type, label, name].filter(Boolean).join(" ");
+	const rest = after.replace(/^[\s.:)]+/, "").trim();
 	return { type, head, rest };
 }
 
@@ -337,9 +359,9 @@ async function extractTheorems(reader) {
 		const chars = data && data.chars;
 		if (!chars || !chars.length) continue;
 		for (const line of charsToLines(chars)) {
-			if (HEADER_RE.test(line.text)) {
-				const { type, head, rest } = splitHeader(line.text);
-				out.push({ type, head, rest: rest.slice(0, 200), pageIndex: i, rects: [line.rect] });
+			const hit = classify(line.text, line.bold);
+			if (hit) {
+				out.push({ type: hit.type, head: hit.head, rest: hit.rest.slice(0, 200), pageIndex: i, rects: [line.rect] });
 			}
 		}
 	}
@@ -347,20 +369,30 @@ async function extractTheorems(reader) {
 	return out;
 }
 
-// Reconstruct visual lines from Zotero's per-char structured text.
-// char: { c, rect:[x1,y1,x2,y2], spaceAfter, lineBreakAfter, paragraphBreakAfter, ignorable }
+function isBold(ch) {
+	return !!ch.bold || /bold|black|semibold|heavy/i.test(ch.fontName || "");
+}
+
+// Reconstruct visual lines from Zotero's per-char structured text; record
+// whether each line's leading (keyword) char is bold.
+// char: { c, rect:[x1,y1,x2,y2], bold, italic, fontName, spaceAfter, lineBreakAfter, paragraphBreakAfter, ignorable }
 function charsToLines(chars) {
 	const lines = [];
 	let buf = "";
 	let rect = null;
+	let bold = false;
+	let gotFirst = false;
 	const flush = () => {
 		const text = buf.replace(/\s+/g, " ").trim();
-		if (text && rect) lines.push({ text, rect });
+		if (text && rect) lines.push({ text, rect, bold });
 		buf = "";
 		rect = null;
+		bold = false;
+		gotFirst = false;
 	};
 	for (const ch of chars) {
 		if (ch.ignorable) continue;
+		if (!gotFirst && ch.c && ch.c.trim()) { bold = isBold(ch); gotFirst = true; }
 		buf += ch.c;
 		if (ch.rect) {
 			if (!rect) rect = ch.rect.slice();
@@ -379,4 +411,4 @@ function charsToLines(chars) {
 }
 
 // node-only: lets test.js import the pure helpers; no-op inside Zotero.
-if (typeof module !== "undefined") module.exports = { charsToLines, splitHeader, fuzzy, HEADER_RE };
+if (typeof module !== "undefined") module.exports = { charsToLines, classify, fuzzy };
