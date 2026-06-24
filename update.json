@@ -3,11 +3,12 @@
     "theorem-list@local": {
       "updates": [
         {
-          "version": "0.5.0",
-          "update_link": "https://github.com/ievlevpn/zotero-theorem-list/releases/download/v0.5.0/theorem-list.xpi",
+          "version": "0.5.1",
+          "update_link": "https://github.com/ievlevpn/zotero-theorem-list/releases/download/v0.5.1/theorem-list.xpi",
           "applications": {
             "zotero": {
-              "strict_min_version": "6.999"
+              "strict_min_version": "6.999",
+              "strict_max_version": "10.*"
             }
           }
         }
