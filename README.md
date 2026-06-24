@@ -3,10 +3,16 @@
 Adds a `∴` button to the PDF reader's top toolbar. Click it to get a popup
 listing every line that starts a theorem-like environment
 (Theorem / Lemma / Proposition / Corollary / Definition / Remark / Claim /
-Conjecture / Example). Click an entry to jump to it in the PDF.
+Conjecture / Example / Assumption). Click an entry — or select with ↑/↓ and
+press Enter — to jump to it in the PDF.
 
 It scans the PDF's own text layer — no content extraction, no network, just a
 regex over the lines pdf.js already gives the reader.
+
+![Theorem List popup](screenshot.png)
+
+The popup also has a fuzzy filter, per-type filter chips, and an optional
+pastel "Color by type" mode.
 
 ## Install (dev)
 
