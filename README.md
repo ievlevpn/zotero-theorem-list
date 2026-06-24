@@ -1,4 +1,4 @@
-# Theorem List (Zotero 7 plugin)
+# Theorem List (Zotero plugin)
 
 Adds a `∴` button to the PDF reader's top toolbar. Click it to get a popup
 listing every line that starts a theorem-like environment

@@ -1,4 +1,4 @@
-/* Theorem List — a tiny Zotero 7 plugin.
+/* Theorem List — a tiny Zotero plugin (bootstrapped, Zotero 7+).
  * Adds a button to the PDF reader toolbar that scans the PDF text for
  * theorem-like headers and lists them in a popup; clicking one jumps there.
  *
