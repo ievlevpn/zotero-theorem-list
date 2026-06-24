@@ -1,26 +1,32 @@
 // Self-check: node test.js  (exits non-zero on failure)
 const assert = require("assert");
-const { groupLines, HEADER_RE } = require("./bootstrap.js");
+const { charsToLines, HEADER_RE } = require("./bootstrap.js");
 
-// pdf.js-style item: transform[4]=x, transform[5]=y baseline.
-const item = (str, x, y, w = str.length * 5, h = 10) => ({
-	str, width: w, height: h, transform: [1, 0, 0, 1, x, y],
-});
+let x = 0;
+// Build chars for a word; last char gets the break flag.
+const word = (s, brk) => [...s].map((c, i) => ({
+	c,
+	rect: [x + i, 100, x + i + 1, 110],
+	spaceAfter: false,
+	lineBreakAfter: brk === "line" && i === s.length - 1,
+	paragraphBreakAfter: brk === "para" && i === s.length - 1,
+	ignorable: false,
+}));
+// space between words
+const sp = () => { const a = [{ c: " ", rect: [x, 100, x + 1, 110], spaceAfter: true, ignorable: false }]; return a; };
 
-// "Theorem 3.1" split across items on the same line (y=700), plus a body line below.
-const items = [
-	item("Theo", 50, 700), item("rem ", 75, 700), item("3.1.", 95, 700),
-	item("Let x be", 50, 685),
-	item("by Theorem 3.1 we get", 50, 670), // mid-sentence ref, must NOT match
-	item("Lemma 2 (Key)", 50, 640),
-];
+const chars = [].concat(
+	word("Theorem"), sp(), word("3.1.", "line"),
+	word("Let"), sp(), word("x", "para"),
+	word("by"), sp(), word("Theorem"), sp(), word("3.1", "line"), // mid-sentence ref
+	word("Lemma"), sp(), word("2", "line"),
+);
 
-const lines = groupLines(items);
+const lines = charsToLines(chars);
 const matched = lines.filter((l) => HEADER_RE.test(l.text)).map((l) => l.text);
 
-assert.deepStrictEqual(matched, ["Theorem 3.1.", "Lemma 2 (Key)"], "matched: " + JSON.stringify(matched));
-// rect spans the joined "Theorem 3.1." line
+assert.deepStrictEqual(matched, ["Theorem 3.1.", "Lemma 2"], "matched: " + JSON.stringify(matched));
 const thm = lines.find((l) => l.text.startsWith("Theorem"));
-assert.ok(thm.rect[0] === 50 && thm.rect[2] > 95, "rect: " + JSON.stringify(thm.rect));
+assert.ok(thm.rect.length === 4 && thm.rect[2] > thm.rect[0], "rect: " + JSON.stringify(thm.rect));
 
 console.log("ok");

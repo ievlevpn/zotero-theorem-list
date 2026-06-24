@@ -138,16 +138,13 @@ async function extractTheorems(reader) {
 	if (!pdf) return null; // not a PDF, or reader not ready
 
 	const out = [];
-	for (let i = 1; i <= pdf.numPages; i++) {
-		const page = await pdf.getPage(i);
-		const tc = await page.getTextContent();
-		for (const line of groupLines(tc.items)) {
+	for (let i = 0; i < pdf.numPages; i++) {
+		// Zotero's pdf.js fork: structured text per page, not getTextContent().
+		const { chars } = await pdf.getPageData({ pageIndex: i });
+		if (!chars || !chars.length) continue;
+		for (const line of charsToLines(chars)) {
 			if (HEADER_RE.test(line.text)) {
-				out.push({
-					label: line.text.slice(0, 90),
-					pageIndex: i - 1,
-					rects: [line.rect],
-				});
+				out.push({ label: line.text.slice(0, 90), pageIndex: i, rects: [line.rect] });
 			}
 		}
 	}
@@ -155,38 +152,36 @@ async function extractTheorems(reader) {
 	return out;
 }
 
-// Group pdf.js text items into visual lines by baseline y, left-to-right.
-function groupLines(items) {
-	const placed = items
-		.filter((it) => it.str !== undefined)
-		.map((it) => ({
-			str: it.str,
-			x: it.transform[4],
-			y: it.transform[5],
-			w: it.width || 0,
-			h: it.height || 0,
-		}))
-		.sort((a, b) => (b.y - a.y) || (a.x - b.x));
-
+// Reconstruct visual lines from Zotero's per-char structured text.
+// char: { c, rect:[x1,y1,x2,y2], spaceAfter, lineBreakAfter, paragraphBreakAfter, ignorable }
+function charsToLines(chars) {
 	const lines = [];
-	let cur = null;
-	for (const it of placed) {
-		if (cur && Math.abs(it.y - cur.y) <= 2) {
-			cur.items.push(it);
-		} else {
-			cur = { y: it.y, items: [it] };
-			lines.push(cur);
+	let buf = "";
+	let rect = null;
+	const flush = () => {
+		const text = buf.replace(/\s+/g, " ").trim();
+		if (text && rect) lines.push({ text, rect });
+		buf = "";
+		rect = null;
+	};
+	for (const ch of chars) {
+		if (ch.ignorable) continue;
+		buf += ch.c;
+		if (ch.rect) {
+			if (!rect) rect = ch.rect.slice();
+			else {
+				rect[0] = Math.min(rect[0], ch.rect[0]);
+				rect[1] = Math.min(rect[1], ch.rect[1]);
+				rect[2] = Math.max(rect[2], ch.rect[2]);
+				rect[3] = Math.max(rect[3], ch.rect[3]);
+			}
 		}
+		if (ch.spaceAfter) buf += " ";
+		if (ch.lineBreakAfter || ch.paragraphBreakAfter) flush();
 	}
-	return lines.map((l) => {
-		const text = l.items.map((it) => it.str).join("").replace(/\s+/g, " ").trim();
-		const minX = Math.min(...l.items.map((it) => it.x));
-		const maxX = Math.max(...l.items.map((it) => it.x + it.w));
-		const minY = Math.min(...l.items.map((it) => it.y));
-		const maxY = Math.max(...l.items.map((it) => it.y + it.h));
-		return { text, rect: [minX, minY, maxX, maxY] };
-	});
+	flush();
+	return lines;
 }
 
 // node-only: lets test.js import the pure helpers; no-op inside Zotero.
-if (typeof module !== "undefined") module.exports = { groupLines, HEADER_RE };
+if (typeof module !== "undefined") module.exports = { charsToLines, HEADER_RE };
