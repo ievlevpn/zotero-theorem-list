@@ -251,6 +251,7 @@ function buildUI(doc, panel, reader, items) {
 }
 
 function makeRow(doc, reader, it) {
+	if (it.isSection) return makeSectionRow(doc, reader, it);
 	const pastel = TYPE_COLORS[it.type] || FALLBACK_COLOR;
 	const r = doc.createElement("div");
 	let base = "padding:6px 10px;cursor:pointer;overflow-wrap:anywhere;";
@@ -283,6 +284,28 @@ function makeRow(doc, reader, it) {
 		r.style.background = colorOn ? pastel : ""; r.style.color = colorOn ? "#222" : "";
 		if (sub) sub.style.color = colorOn ? "#555" : "GrayText";
 	});
+	r.addEventListener("click", () => jumpTo(reader, it));
+	return r;
+}
+
+// Outline sections render as a structural row: indented by depth, a left rule,
+// no pastel — deliberately unlike the theorem cards, and ignores colorOn.
+function makeSectionRow(doc, reader, it) {
+	const r = doc.createElement("div");
+	const indent = 10 + (it.level - 1) * 14;
+	const bg = "color-mix(in srgb, CanvasText 6%, Canvas)";
+	r.style.cssText = `padding:5px 10px 5px ${indent}px;cursor:pointer;overflow-wrap:anywhere;border-left:3px solid GrayText;background:${bg};`;
+
+	const pg = doc.createElement("span");
+	pg.textContent = `p.${it.pageIndex + 1}  `;
+	pg.style.cssText = "font-size:11px;opacity:.6;";
+	const label = doc.createElement("span");
+	label.textContent = it.head;
+	label.style.cssText = it.level === 1 ? "font-weight:700;" : "font-weight:600;font-size:12px;opacity:.85;";
+	r.append(pg, label);
+
+	r.addEventListener("mouseenter", () => { r.style.background = "Highlight"; r.style.color = "HighlightText"; pg.style.opacity = "1"; });
+	r.addEventListener("mouseleave", () => { r.style.background = bg; r.style.color = ""; pg.style.opacity = ".6"; });
 	r.addEventListener("click", () => jumpTo(reader, it));
 	return r;
 }
@@ -351,7 +374,10 @@ function closePanel() {
 }
 
 function jumpTo(reader, it) {
-	reader.navigate({ position: { pageIndex: it.pageIndex, rects: it.rects } });
+	// Outline sections may resolve to a page with no anchor rect → page-only nav.
+	reader.navigate(it.rects && it.rects.length
+		? { position: { pageIndex: it.pageIndex, rects: it.rects } }
+		: { pageIndex: it.pageIndex });
 	if (!pinned) closePanel();
 }
 
@@ -400,8 +426,53 @@ async function extractTheorems(reader) {
 
 	const out = [];
 	for (const items of perPage) if (items) out.push(...items);
+
+	// Sections come from the PDF's own outline (bookmarks) — far more reliable
+	// than guessing headings from the page text. Interleave by page; show a
+	// section heading before the theorems sitting on the same page.
+	out.push(...await extractOutline(pdf, Cu));
+	out.sort((a, b) => a.pageIndex - b.pageIndex || (b.isSection ? 1 : 0) - (a.isSection ? 1 : 0));
+
 	reader.__theorems = out;
 	return out;
+}
+
+// Read the PDF outline and flatten it to section items. Returns [] if the PDF
+// has no outline or anything goes wrong (sections are a bonus, never fatal).
+async function extractOutline(pdf, Cu) {
+	let outline;
+	try { outline = Cu.waiveXrays(await pdf.getOutline()); } catch (e) { return []; }
+	if (!outline || !outline.length) return [];
+
+	const out = [];
+	const walk = async (nodes, level) => {
+		for (const node of nodes) {
+			const loc = await destToLocation(pdf, Cu, node.dest);
+			if (loc) out.push({ type: "Section", isSection: true, level, head: (node.title || "").trim() || "(untitled)", rest: "", pageIndex: loc.pageIndex, rects: loc.rects });
+			if (node.items && node.items.length) await walk(node.items, level + 1);
+		}
+	};
+	await walk(outline, 1);
+	return out;
+}
+
+// Resolve a pdf.js outline dest → { pageIndex, rects } in the bottom-left PDF
+// point space reader.navigate expects. dest is either an explicit
+// [ref, {name}, ...coords] array or a named-destination string to look up.
+async function destToLocation(pdf, Cu, dest) {
+	try {
+		let explicit = dest;
+		if (typeof dest === "string") explicit = Cu.waiveXrays(await pdf.getDestination(dest));
+		if (!Array.isArray(explicit) || !explicit[0]) return null;
+		const pageIndex = await pdf.getPageIndex(explicit[0]); // 0-based
+		const name = explicit[1] && explicit[1].name;
+		const top = name === "XYZ" ? explicit[3]
+			: (name === "FitH" || name === "FitBH") ? explicit[2]
+			: name === "FitR" ? explicit[5] : null; // Fit/FitB/FitV → whole page
+		const left = (name === "XYZ" && typeof explicit[2] === "number") ? explicit[2] : 0;
+		const rects = typeof top === "number" ? [[left, top - 1, left + 1, top]] : [];
+		return { pageIndex, rects };
+	} catch (e) { return null; }
 }
 
 function isBold(ch) {
