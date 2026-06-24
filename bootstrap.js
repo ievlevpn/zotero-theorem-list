@@ -66,7 +66,7 @@ function togglePanel(reader, doc, btn) {
 		closePanel();
 		return;
 	}
-	const panel = makePanel(doc, btn);
+	const panel = makePanel(reader, doc, btn);
 	const row = doc.createElement("div");
 	row.textContent = "Scanning…";
 	row.style.cssText = "padding:6px 10px;color:GrayText;";
@@ -125,7 +125,7 @@ function togglePanel(reader, doc, btn) {
 	});
 }
 
-function makePanel(doc, btn) {
+function makePanel(reader, doc, btn) {
 	const panel = doc.createElement("div");
 	const rect = btn.getBoundingClientRect();
 	const vw = (doc.defaultView && doc.defaultView.innerWidth) || 800;
@@ -154,14 +154,35 @@ function makePanel(doc, btn) {
 	const onDown = (e) => {
 		if (!panel.contains(e.target) && e.target !== btn) closePanel();
 	};
-	doc.addEventListener("pointerdown", onDown, true);
-	openPanel = { el: panel, onDown, doc };
+	const onKey = (e) => {
+		if (e.key === "Escape") closePanel();
+	};
+
+	// The PDF lives in a nested iframe, so clicks/keys there don't reach the
+	// reader doc — listen on both so outside-click and Escape always work.
+	const docs = [doc];
+	const innerDoc = reader?._internalReader?._primaryView?._iframeWindow?.document;
+	if (innerDoc && innerDoc !== doc) docs.push(innerDoc);
+	for (const d of docs) {
+		d.addEventListener("pointerdown", onDown, true);
+		d.addEventListener("keydown", onKey, true);
+	}
+
+	openPanel = {
+		el: panel,
+		cleanup: () => {
+			for (const d of docs) {
+				d.removeEventListener("pointerdown", onDown, true);
+				d.removeEventListener("keydown", onKey, true);
+			}
+		},
+	};
 	return panel;
 }
 
 function closePanel() {
 	if (!openPanel) return;
-	openPanel.doc.removeEventListener("pointerdown", openPanel.onDown, true);
+	openPanel.cleanup();
 	openPanel.el.remove();
 	openPanel = null;
 }
