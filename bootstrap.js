@@ -124,7 +124,13 @@ function buildUI(doc, panel, reader, items) {
 	search.style.cssText = "width:100%;box-sizing:border-box;padding:3px 6px;font:13px sans-serif;";
 	search.addEventListener("input", () => { query = search.value; render(); });
 	// Don't let typed keys trigger reader shortcuts; keep Escape working.
-	search.addEventListener("keydown", (e) => { if (e.key !== "Escape") e.stopPropagation(); });
+	search.addEventListener("keydown", (e) => {
+		if (e.key === "Escape") return; // let it bubble so the panel closes
+		e.stopPropagation(); // typed keys must not trigger reader shortcuts
+		if (e.key === "ArrowDown") { e.preventDefault(); applySel(sel + 1); }
+		else if (e.key === "ArrowUp") { e.preventDefault(); applySel(sel - 1); }
+		else if (e.key === "Enter") { e.preventDefault(); if (shown[sel]) jumpTo(reader, shown[sel]); }
+	});
 	controls.append(search);
 
 	const chipBar = doc.createElement("div");
@@ -154,18 +160,42 @@ function buildUI(doc, panel, reader, items) {
 	colorCb.checked = colorOn;
 	colorCb.addEventListener("change", () => { colorOn = colorCb.checked; render(); });
 	colorLabel.append(colorCb, doc.createTextNode("Color by type"));
-	controls.append(colorLabel);
+
+	const count = doc.createElement("span");
+	count.style.cssText = "font:11px sans-serif;color:GrayText;";
+
+	const bottom = doc.createElement("div");
+	bottom.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:8px;";
+	bottom.append(colorLabel, count);
+	controls.append(bottom);
 
 	panel.append(controls);
 
 	const list = doc.createElement("div");
 	panel.append(list);
 
+	let shown = [];   // currently visible items
+	let rowEls = [];  // their row elements, parallel to shown
+	let sel = -1;     // index of the keyboard-selected row
+
+	const applySel = (i) => {
+		if (rowEls[sel]) rowEls[sel].style.outline = "";
+		sel = Math.max(0, Math.min(i, rowEls.length - 1));
+		const r = rowEls[sel];
+		if (!r) return;
+		r.style.outline = "2px solid Highlight";
+		r.style.outlineOffset = "-2px";
+		r.scrollIntoView({ block: "nearest" });
+	};
+
 	const render = () => {
 		list.replaceChildren();
 		const q = query.trim().toLowerCase();
-		const shown = items.filter((it) =>
+		shown = items.filter((it) =>
 			!hidden.has(it.type) && fuzzy(q, (it.head + " " + it.rest).toLowerCase()));
+		count.textContent = `${shown.length} / ${items.length}`;
+		rowEls = [];
+		sel = -1;
 		if (!shown.length) {
 			const none = doc.createElement("div");
 			none.textContent = "No matches.";
@@ -173,7 +203,12 @@ function buildUI(doc, panel, reader, items) {
 			list.append(none);
 			return;
 		}
-		for (const it of shown) list.append(makeRow(doc, reader, it));
+		for (const it of shown) {
+			const r = makeRow(doc, reader, it);
+			rowEls.push(r);
+			list.append(r);
+		}
+		applySel(0);
 	};
 
 	render();
@@ -213,10 +248,7 @@ function makeRow(doc, reader, it) {
 		r.style.background = colorOn ? pastel : ""; r.style.color = colorOn ? "#222" : "";
 		if (sub) sub.style.color = colorOn ? "#555" : "GrayText";
 	});
-	r.addEventListener("click", () => {
-		reader.navigate({ position: { pageIndex: it.pageIndex, rects: it.rects } });
-		closePanel();
-	});
+	r.addEventListener("click", () => jumpTo(reader, it));
 	return r;
 }
 
@@ -280,6 +312,11 @@ function closePanel() {
 	openPanel.cleanup();
 	openPanel.el.remove();
 	openPanel = null;
+}
+
+function jumpTo(reader, it) {
+	reader.navigate({ position: { pageIndex: it.pageIndex, rects: it.rects } });
+	closePanel();
 }
 
 // --- PDF scanning ----------------------------------------------------------
