@@ -84,8 +84,12 @@ function togglePanel(reader, doc, btn) {
 			panel.append(r);
 		}
 	}).catch((e) => {
-		Zotero.debug("Theorem List: " + e);
-		row.textContent = "Error scanning PDF.";
+		Zotero.debug("Theorem List: " + ((e && e.stack) || e));
+		if (!openPanel || openPanel.el !== panel) return;
+		panel.replaceChildren();
+		row.textContent = "Error: " + ((e && e.message) || String(e));
+		row.style.cssText = "padding:6px 10px;color:GrayText;white-space:normal;max-width:340px;";
+		panel.append(row);
 	});
 }
 
