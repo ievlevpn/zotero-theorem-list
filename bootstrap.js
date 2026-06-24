@@ -15,22 +15,43 @@ const KEYWORDS = [
 ];
 const HEADER_RE = new RegExp("^(" + KEYWORDS.join("|") + ")\\s*(\\d|\\()", "i");
 
-// Split a matched line into a clean header ("Theorem 3.1 (Name)") and the
-// remaining statement text (shown dimmed for context).
+// Pastel background per type for the optional "Color by type" mode.
+const TYPE_COLORS = {
+	Theorem: "#cfe8ff", Lemma: "#d8f5d0", Proposition: "#ffe6cc",
+	Corollary: "#f6d3ea", Definition: "#fff4c2", Remark: "#e3e3e3",
+	Claim: "#cdf0ef", Conjecture: "#e6d6ff", Example: "#cdf3df",
+	Assumption: "#ffd6d6",
+};
+const FALLBACK_COLOR = "#eeeeee";
+
+// Split a matched line into type, a clean header ("Theorem 3.1 (Name)") and
+// the remaining statement text (shown dimmed for context).
 const HEAD_SPLIT_RE = new RegExp(
 	"^(" + KEYWORDS.join("|") + ")\\s*(\\d[\\d.]*)?\\s*(\\([^)]*\\))?\\s*(.*)$", "i");
 
 function splitHeader(text) {
 	const m = text.match(HEAD_SPLIT_RE);
-	if (!m) return { head: text, rest: "" };
+	if (!m) return { type: "", head: text, rest: "" };
+	const type = KEYWORDS.find((k) => k.toLowerCase() === m[1].toLowerCase()) || m[1];
 	const num = (m[2] || "").replace(/\.+$/, ""); // drop trailing "." of "3.1."
-	const head = [m[1], num, m[3]].filter(Boolean).join(" ");
+	const head = [type, num, m[3]].filter(Boolean).join(" ");
 	const rest = (m[4] || "").replace(/^[.:)\s]+/, "").trim();
-	return { head, rest };
+	return { type, head, rest };
+}
+
+// Classic subsequence fuzzy match: every char of q appears in order in text.
+function fuzzy(q, text) {
+	if (!q) return true;
+	let i = 0;
+	for (let j = 0; j < text.length && i < q.length; j++) {
+		if (text[j] === q[i]) i++;
+	}
+	return i === q.length;
 }
 
 let onRenderToolbar; // kept for unregister on shutdown
-let openPanel; // { el, onDown, doc } of the single open popup, or null
+let openPanel; // { el, cleanup } of the single open popup, or null
+let colorOn = false; // "Color by type" toggle, persisted across opens
 
 function startup({ id }) {
 	onRenderToolbar = (event) => renderButton(event);
@@ -67,62 +88,130 @@ function togglePanel(reader, doc, btn) {
 		return;
 	}
 	const panel = makePanel(reader, doc, btn);
-	const row = doc.createElement("div");
-	row.textContent = "Scanning…";
-	row.style.cssText = "padding:6px 10px;color:GrayText;";
-	panel.append(row);
+	const msg = (text) => {
+		panel.replaceChildren();
+		const row = doc.createElement("div");
+		row.textContent = text;
+		row.style.cssText = "padding:6px 10px;color:GrayText;white-space:normal;overflow-wrap:anywhere;";
+		panel.append(row);
+	};
+	msg("Scanning…");
 
 	extractTheorems(reader).then((items) => {
 		if (!openPanel || openPanel.el !== panel) return; // closed meanwhile
-		panel.replaceChildren();
-		if (items === null) {
-			row.textContent = "No PDF (or not loaded yet).";
-			panel.append(row);
-			return;
-		}
-		if (items.length === 0) {
-			row.textContent = "No theorems found.";
-			panel.append(row);
-			return;
-		}
-		for (const it of items) {
-			const r = doc.createElement("div");
-			r.style.cssText = "padding:6px 10px;cursor:pointer;overflow-wrap:anywhere;";
-
-			const head = doc.createElement("div");
-			head.textContent = `p.${it.pageIndex + 1}  ${it.head}`;
-			r.append(head);
-
-			let sub = null;
-			if (it.rest) {
-				sub = doc.createElement("div");
-				sub.textContent = it.rest;
-				sub.style.cssText = "font-size:11px;color:GrayText;margin-top:1px;line-height:1.3;";
-				r.append(sub);
-			}
-
-			r.addEventListener("mouseenter", () => {
-				r.style.background = "Highlight"; r.style.color = "HighlightText";
-				if (sub) sub.style.color = "HighlightText";
-			});
-			r.addEventListener("mouseleave", () => {
-				r.style.background = ""; r.style.color = "";
-				if (sub) sub.style.color = "GrayText";
-			});
-			r.addEventListener("click", () => {
-				reader.navigate({ position: { pageIndex: it.pageIndex, rects: it.rects } });
-				closePanel();
-			});
-			panel.append(r);
-		}
+		if (items === null) return msg("No PDF (or not loaded yet).");
+		if (items.length === 0) return msg("No theorems found.");
+		buildUI(doc, panel, reader, items);
 	}).catch((e) => {
 		Zotero.debug("Theorem List: " + ((e && e.stack) || e));
-		if (!openPanel || openPanel.el !== panel) return;
-		panel.replaceChildren();
-		row.textContent = "Error: " + ((e && e.message) || String(e));
-		row.style.cssText = "padding:6px 10px;color:CanvasText;white-space:normal;overflow-wrap:anywhere;";
-		panel.append(row);
+		if (openPanel && openPanel.el === panel) msg("Error: " + ((e && e.message) || String(e)));
 	});
+}
+
+// Search + type filter + color toggle, then the live-filtered list.
+function buildUI(doc, panel, reader, items) {
+	panel.replaceChildren();
+	const types = [...new Set(items.map((it) => it.type))];
+	const hidden = new Set();
+	let query = "";
+
+	const controls = doc.createElement("div");
+	controls.style.cssText = "position:sticky;top:0;background:Canvas;padding:6px 8px;border-bottom:1px solid GrayText;display:flex;flex-direction:column;gap:6px;";
+
+	const search = doc.createElement("input");
+	search.type = "search";
+	search.placeholder = "Fuzzy filter…";
+	search.style.cssText = "width:100%;box-sizing:border-box;padding:3px 6px;font:13px sans-serif;";
+	search.addEventListener("input", () => { query = search.value; render(); });
+	// Don't let typed keys trigger reader shortcuts; keep Escape working.
+	search.addEventListener("keydown", (e) => { if (e.key !== "Escape") e.stopPropagation(); });
+	controls.append(search);
+
+	const chipBar = doc.createElement("div");
+	chipBar.style.cssText = "display:flex;flex-wrap:wrap;gap:4px;align-items:center;";
+	for (const t of types) {
+		const chip = doc.createElement("button");
+		chip.textContent = t;
+		const base = "font:11px sans-serif;padding:2px 8px;border-radius:10px;cursor:pointer;border:1px solid GrayText;";
+		const paint = () => {
+			const on = !hidden.has(t);
+			chip.style.cssText = base + `background:${on ? (TYPE_COLORS[t] || FALLBACK_COLOR) : "transparent"};color:${on ? "#222" : "GrayText"};opacity:${on ? "1" : ".55"};`;
+		};
+		paint();
+		chip.addEventListener("click", () => {
+			hidden.has(t) ? hidden.delete(t) : hidden.add(t);
+			paint();
+			render();
+		});
+		chipBar.append(chip);
+	}
+	controls.append(chipBar);
+
+	const colorLabel = doc.createElement("label");
+	colorLabel.style.cssText = "font:11px sans-serif;display:flex;align-items:center;gap:5px;cursor:pointer;color:CanvasText;";
+	const colorCb = doc.createElement("input");
+	colorCb.type = "checkbox";
+	colorCb.checked = colorOn;
+	colorCb.addEventListener("change", () => { colorOn = colorCb.checked; render(); });
+	colorLabel.append(colorCb, doc.createTextNode("Color by type"));
+	controls.append(colorLabel);
+
+	panel.append(controls);
+
+	const list = doc.createElement("div");
+	panel.append(list);
+
+	const render = () => {
+		list.replaceChildren();
+		const q = query.trim().toLowerCase();
+		const shown = items.filter((it) =>
+			!hidden.has(it.type) && fuzzy(q, (it.head + " " + it.rest).toLowerCase()));
+		if (!shown.length) {
+			const none = doc.createElement("div");
+			none.textContent = "No matches.";
+			none.style.cssText = "padding:6px 10px;color:GrayText;";
+			list.append(none);
+			return;
+		}
+		for (const it of shown) list.append(makeRow(doc, reader, it));
+	};
+
+	render();
+	search.focus();
+}
+
+function makeRow(doc, reader, it) {
+	const pastel = TYPE_COLORS[it.type] || FALLBACK_COLOR;
+	const r = doc.createElement("div");
+	let base = "padding:6px 10px;cursor:pointer;overflow-wrap:anywhere;";
+	if (colorOn) base += `background:${pastel};color:#222;border-left:4px solid rgba(0,0,0,.18);`;
+	r.style.cssText = base;
+
+	const head = doc.createElement("div");
+	head.textContent = `p.${it.pageIndex + 1}  ${it.head}`;
+	r.append(head);
+
+	let sub = null;
+	if (it.rest) {
+		sub = doc.createElement("div");
+		sub.textContent = it.rest;
+		sub.style.cssText = `font-size:11px;color:${colorOn ? "#555" : "GrayText"};margin-top:1px;line-height:1.3;`;
+		r.append(sub);
+	}
+
+	r.addEventListener("mouseenter", () => {
+		r.style.background = "Highlight"; r.style.color = "HighlightText";
+		if (sub) sub.style.color = "HighlightText";
+	});
+	r.addEventListener("mouseleave", () => {
+		r.style.background = colorOn ? pastel : ""; r.style.color = colorOn ? "#222" : "";
+		if (sub) sub.style.color = colorOn ? "#555" : "GrayText";
+	});
+	r.addEventListener("click", () => {
+		reader.navigate({ position: { pageIndex: it.pageIndex, rects: it.rects } });
+		closePanel();
+	});
+	return r;
 }
 
 function makePanel(reader, doc, btn) {
@@ -147,7 +236,7 @@ function makePanel(reader, doc, btn) {
 		"overflow-y:auto",
 		"overflow-x:hidden",
 		"font:13px sans-serif",
-		"padding:4px 0",
+		"padding:0 0 4px",
 	].join(";");
 	doc.body.append(panel);
 
@@ -206,8 +295,8 @@ async function extractTheorems(reader) {
 		if (!chars || !chars.length) continue;
 		for (const line of charsToLines(chars)) {
 			if (HEADER_RE.test(line.text)) {
-				const { head, rest } = splitHeader(line.text);
-				out.push({ head, rest: rest.slice(0, 200), pageIndex: i, rects: [line.rect] });
+				const { type, head, rest } = splitHeader(line.text);
+				out.push({ type, head, rest: rest.slice(0, 200), pageIndex: i, rects: [line.rect] });
 			}
 		}
 	}
@@ -247,4 +336,4 @@ function charsToLines(chars) {
 }
 
 // node-only: lets test.js import the pure helpers; no-op inside Zotero.
-if (typeof module !== "undefined") module.exports = { charsToLines, splitHeader, HEADER_RE };
+if (typeof module !== "undefined") module.exports = { charsToLines, splitHeader, fuzzy, HEADER_RE };

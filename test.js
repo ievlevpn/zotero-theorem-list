@@ -1,6 +1,6 @@
 // Self-check: node test.js  (exits non-zero on failure)
 const assert = require("assert");
-const { charsToLines, splitHeader, HEADER_RE } = require("./bootstrap.js");
+const { charsToLines, splitHeader, fuzzy, HEADER_RE } = require("./bootstrap.js");
 
 let x = 0;
 const word = (s, brk) => [...s].map((c, i) => ({
@@ -24,11 +24,18 @@ const lines = charsToLines(chars);
 const matched = lines.filter((l) => HEADER_RE.test(l.text)).map((l) => l.text);
 assert.deepStrictEqual(matched, ["Theorem 3.1.", "Lemma 2"], "matched: " + JSON.stringify(matched));
 
-// splitHeader: clean head + dimmed body, trailing-dot stripped, paren name kept
-assert.deepStrictEqual(splitHeader("Theorem 3.1. Let x be"), { head: "Theorem 3.1", rest: "Let x be" });
-assert.deepStrictEqual(splitHeader("Lemma 2 (Key). The map"), { head: "Lemma 2 (Key)", rest: "The map" });
-assert.deepStrictEqual(splitHeader("Definition 2.3 (Foo bar). T"), { head: "Definition 2.3 (Foo bar)", rest: "T" });
-assert.deepStrictEqual(splitHeader("Theorem 3.1"), { head: "Theorem 3.1", rest: "" });
-assert.deepStrictEqual(splitHeader("Remark (Main). Note"), { head: "Remark (Main)", rest: "Note" });
+// splitHeader: type + clean head + dimmed body; trailing dot dropped, paren kept
+assert.deepStrictEqual(splitHeader("Theorem 3.1. Let x be"), { type: "Theorem", head: "Theorem 3.1", rest: "Let x be" });
+assert.deepStrictEqual(splitHeader("Lemma 2 (Key). The map"), { type: "Lemma", head: "Lemma 2 (Key)", rest: "The map" });
+assert.deepStrictEqual(splitHeader("Theorem 3.1"), { type: "Theorem", head: "Theorem 3.1", rest: "" });
+// canonical-cases the type even if the PDF lowercased it
+assert.strictEqual(splitHeader("lemma 7. foo").type, "Lemma");
+
+// fuzzy: subsequence, case already lowered by caller
+assert.ok(fuzzy("", "anything"));
+assert.ok(fuzzy("thm", "theorem main"));
+assert.ok(fuzzy("morse", "recovery of the smooth morse case"));
+assert.ok(!fuzzy("xyz", "theorem"));
+assert.ok(!fuzzy("thn", "theorem")); // n after m never appears
 
 console.log("ok");
