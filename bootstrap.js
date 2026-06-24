@@ -11,7 +11,7 @@
 // cuts mid-sentence cross-refs ("...by Theorem 3.1...") that don't begin a line.
 const KEYWORDS = [
 	"Theorem", "Lemma", "Proposition", "Corollary",
-	"Definition", "Remark", "Claim", "Conjecture", "Example",
+	"Definition", "Remark", "Claim", "Conjecture", "Example", "Assumption",
 ];
 const HEADER_RE = new RegExp("^(" + KEYWORDS.join("|") + ")\\s*(\\d|\\()", "i");
 
