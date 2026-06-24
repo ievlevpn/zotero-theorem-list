@@ -353,21 +353,42 @@ async function extractTheorems(reader) {
 	if (!pdf) return null; // not a PDF, or reader not ready
 
 	const Cu = Components.utils;
-	const out = [];
-	for (let i = 0; i < pdf.numPages; i++) {
-		// Zotero's pdf.js fork: structured text per page, not getTextContent().
-		// The arg must be built in the reader's window or it can't be cloned to
-		// the pdf.js worker; waive Xrays to read the returned char objects.
+	const N = pdf.numPages;
+
+	// Zotero's pdf.js fork: structured text per page, not getTextContent().
+	// The arg must be built in the reader's window or it can't be cloned to the
+	// pdf.js worker; waive Xrays to read the returned char objects.
+	const scanPage = async (i) => {
 		const data = Cu.waiveXrays(await pdf.getPageData(Cu.cloneInto({ pageIndex: i }, win)));
 		const chars = data && data.chars;
-		if (!chars || !chars.length) continue;
-		for (const line of charsToLines(chars)) {
-			const hit = classify(line.text, line.bold);
-			if (hit) {
-				out.push({ type: hit.type, head: hit.head, rest: hit.rest.slice(0, 200), pageIndex: i, rects: [line.rect] });
+		const items = [];
+		if (chars && chars.length) {
+			for (const line of charsToLines(chars)) {
+				const hit = classify(line.text, line.bold);
+				if (hit) items.push({ type: hit.type, head: hit.head, rest: hit.rest.slice(0, 200), pageIndex: i, rects: [line.rect] });
 			}
 		}
-	}
+		return items;
+	};
+
+	// Pipeline page requests: the worker is single-threaded, but keeping a few
+	// in flight hides the per-page round-trip + structured-clone latency that an
+	// await-per-page loop spends idle. Bounded so huge PDFs don't buffer every
+	// page's char array at once.
+	// ponytail: fixed window, not unbounded Promise.all — caps memory on books.
+	const CONCURRENCY = 8;
+	const perPage = new Array(N);
+	let next = 0;
+	const worker = async () => {
+		while (next < N) {
+			const i = next++;
+			perPage[i] = await scanPage(i);
+		}
+	};
+	await Promise.all(Array.from({ length: Math.min(CONCURRENCY, N) }, worker));
+
+	const out = [];
+	for (const items of perPage) if (items) out.push(...items);
 	reader.__theorems = out;
 	return out;
 }
