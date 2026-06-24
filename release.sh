@@ -22,7 +22,10 @@ const repo = process.env.REPO;
 const out = { addons: { [z.id]: { updates: [{
   version: m.version,
   update_link: `https://github.com/${repo}/releases/download/v${m.version}/theorem-list.xpi`,
-  applications: { zotero: { strict_min_version: z.strict_min_version } },
+  applications: { zotero: {
+    strict_min_version: z.strict_min_version,
+    ...(z.strict_max_version ? { strict_max_version: z.strict_max_version } : {}),
+  } },
 }] } } };
 fs.writeFileSync("update.json", JSON.stringify(out, null, 2) + "\n");
 '
