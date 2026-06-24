@@ -116,7 +116,7 @@ function buildUI(doc, panel, reader, items) {
 	let query = "";
 
 	const controls = doc.createElement("div");
-	controls.style.cssText = "position:sticky;top:0;background:Canvas;padding:6px 8px;border-bottom:1px solid GrayText;display:flex;flex-direction:column;gap:6px;";
+	controls.style.cssText = "position:sticky;top:0;z-index:1;background:Canvas;padding:6px 8px;border-bottom:1px solid GrayText;display:flex;flex-direction:column;gap:6px;";
 
 	const search = doc.createElement("input");
 	search.type = "search";
