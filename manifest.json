@@ -1,0 +1,16 @@
+{
+	"manifest_version": 2,
+	"name": "Theorem List",
+	"version": "0.1.0",
+	"description": "Adds a button to the PDF reader toolbar that lists theorems, lemmas, propositions and corollaries, with click-to-jump.",
+	"author": "voidlambda",
+	"icons": {},
+	"applications": {
+		"zotero": {
+			"id": "theorem-list@local",
+			"update_url": "https://example.com/updates.json",
+			"strict_min_version": "6.999",
+			"strict_max_version": "7.0.*"
+		}
+	}
+}
