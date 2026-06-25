@@ -196,12 +196,35 @@ function buildUI(doc, panel, reader, items) {
 	paintPin();
 	pin.addEventListener("click", () => { pinned = !pinned; paintPin(); });
 
+	const copy = doc.createElement("button");
+	copy.textContent = "📋 Copy";
+	copy.title = "Copy the visible list (in order) to clipboard";
+	copy.style.cssText = "font:11px sans-serif;padding:2px 8px;border-radius:10px;cursor:pointer;border:1px solid GrayText;background:transparent;color:CanvasText;";
+	copy.addEventListener("click", () => {
+		// Bold the leading "<word> <number>" (e.g. **Theorem 1.2**, **Chapter 3**);
+		// the number is the first whitespace-token that contains a digit.
+		const boldHead = (word, body) => {
+			const m = body.match(/^\s*(\S*\d\S*)\s*/);
+			return m
+				? "**" + word + " " + m[1] + "** " + body.slice(m[0].length)
+				: "**" + word + "** " + body;
+		};
+		const text = shown.map((it) => {
+			if (!it.isSection)
+				return "- " + boldHead(it.type, it.head.slice(it.type.length).trim());
+			return "- " + boldHead(it.level === 1 ? "Chapter" : "Section", it.head);
+		}).join("\n");
+		Zotero.Utilities.Internal.copyTextToClipboard(text);
+		copy.textContent = "✓ Copied";
+		doc.defaultView.setTimeout(() => { copy.textContent = "📋 Copy"; }, 1200);
+	});
+
 	const count = doc.createElement("span");
 	count.style.cssText = "font:11px sans-serif;color:GrayText;";
 
 	const bottom = doc.createElement("div");
 	bottom.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:8px;";
-	bottom.append(colorLabel, pin, count);
+	bottom.append(colorLabel, pin, copy, count);
 	controls.append(bottom);
 
 	panel.append(controls);
