@@ -35,6 +35,9 @@ git commit -m "Release v$VER" || echo "(nothing to commit)"
 git push
 
 # Changelog = commits since the previous tag (drop the "Release vX" commits).
+# Fetch tags first: gh creates tags remotely, so local tags go stale and
+# git describe would pick an old one, repeating already-shipped changes.
+git fetch --tags -q || true
 PREV=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
 RANGE=${PREV:+$PREV..HEAD}
 CHANGES=$(git log --no-merges --pretty='- %s' $RANGE | grep -v '^- Release v' || true)

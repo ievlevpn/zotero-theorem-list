@@ -454,7 +454,11 @@ async function extractTheorems(reader) {
 	// than guessing headings from the page text. Interleave by page; show a
 	// section heading before the theorems sitting on the same page.
 	out.push(...await extractOutline(pdf, Cu));
-	out.sort((a, b) => a.pageIndex - b.pageIndex || (b.isSection ? 1 : 0) - (a.isSection ? 1 : 0));
+	// Within a page, order top-to-bottom so a theorem above a heading stays above
+	// it. Bottom-left origin → larger top-y is higher. Whole-page section dests
+	// have no rect (topY=∞) → sort to page top, falling back to section-first.
+	const topY = it => (it.rects && it.rects.length) ? it.rects[0][3] : Infinity;
+	out.sort((a, b) => a.pageIndex - b.pageIndex || topY(b) - topY(a) || (b.isSection ? 1 : 0) - (a.isSection ? 1 : 0));
 
 	reader.__theorems = out;
 	return out;
