@@ -9,7 +9,10 @@ press Enter — to jump to it in the PDF.
 It scans the PDF's own text layer — no content extraction, no network, just a
 regex over the lines pdf.js already gives the reader.
 
-![Theorem List popup](screenshot.png)
+![The Theorem List popup](screenshot.png)
+
+<sub>Rendered from the plugin's own stylesheet — same markup and CSS as the
+panel in the reader, minus the PDF behind it.</sub>
 
 The popup also has a fuzzy filter and per-type filter chips; each entry carries
 a colored stripe for its environment type, and outline sections stick to the top
@@ -20,7 +23,7 @@ of the list as you scroll.
 ```sh
 # Build the installable .xpi (just a zip of these files):
 cd zotero-theorem-list
-zip -r theorem-list.xpi manifest.json bootstrap.js
+zip -r theorem-list.xpi manifest.json bootstrap.js icon.svg
 ```
 
 Then in Zotero: **Tools → Plugins → gear icon → Install Plugin From File…**

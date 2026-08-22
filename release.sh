@@ -11,7 +11,7 @@ VER=$(node -p "require('./manifest.json').version")
 
 node test.js
 rm -f "$XPI"
-zip -q -r "$XPI" manifest.json bootstrap.js
+zip -q -r "$XPI" manifest.json bootstrap.js icon.svg
 
 # Regenerate update.json so update_link always points at this version's asset.
 REPO="$REPO" node -e '
@@ -30,7 +30,7 @@ const out = { addons: { [z.id]: { updates: [{
 fs.writeFileSync("update.json", JSON.stringify(out, null, 2) + "\n");
 '
 
-git add manifest.json bootstrap.js update.json
+git add -A
 git commit -m "Release v$VER" || echo "(nothing to commit)"
 git push
 
