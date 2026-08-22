@@ -11,8 +11,9 @@ regex over the lines pdf.js already gives the reader.
 
 ![Theorem List popup](screenshot.png)
 
-The popup also has a fuzzy filter, per-type filter chips, and an optional
-pastel "Color by type" mode.
+The popup also has a fuzzy filter and per-type filter chips; each entry carries
+a colored stripe for its environment type, and outline sections stick to the top
+of the list as you scroll.
 
 ## Install (dev)
 

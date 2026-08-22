@@ -12,14 +12,18 @@ const KEYWORDS = [
 	"Definition", "Remark", "Claim", "Conjecture", "Example", "Assumption",
 ];
 
-// Pastel background per type for the optional "Color by type" mode.
+// Accent hue per type: a 4px stripe on the row, a tint on the filter chip.
+// Spread around the wheel so neighbouring types stay distinguishable, and
+// mixed with Canvas at paint time so both light and dark themes work without
+// hardcoding text colors.
 const TYPE_COLORS = {
-	Theorem: "#cfe8ff", Lemma: "#d8f5d0", Proposition: "#ffe6cc",
-	Corollary: "#f6d3ea", Definition: "#fff4c2", Remark: "#e3e3e3",
-	Claim: "#cdf0ef", Conjecture: "#e6d6ff", Example: "#cdf3df",
-	Assumption: "#ffd6d6",
+	Theorem: "hsl(212 90% 52%)", Lemma: "hsl(145 62% 42%)",
+	Proposition: "hsl(28 92% 52%)", Corollary: "hsl(322 72% 55%)",
+	Definition: "hsl(48 95% 47%)", Remark: "hsl(220 9% 55%)",
+	Claim: "hsl(184 72% 42%)", Conjecture: "hsl(268 72% 60%)",
+	Example: "hsl(96 55% 42%)", Assumption: "hsl(356 78% 57%)",
 };
-const FALLBACK_COLOR = "#eeeeee";
+const FALLBACK_COLOR = "hsl(220 9% 55%)";
 
 // A label after the keyword: "3.1", "1.2.3", "A.1", "B", roman "IV", or none.
 // (Standalone letters/roman use a negative lookahead so "About"/"In" aren't labels.)
@@ -74,7 +78,6 @@ function fuzzy(q, text) {
 let onRenderToolbar; // kept for unregister on shutdown
 let openPanel; // { el, cleanup } of the single open popup, or null
 // UI state persisted across popup opens (and across documents).
-let colorOn = false;        // "Color by type" toggle
 let pinned = false;         // when on, panel survives jumps and outside clicks
 let savedQuery = "";        // fuzzy filter text
 const savedHidden = new Set(); // type names toggled off
@@ -95,10 +98,65 @@ function shutdown() {
 function install() {}
 function uninstall() {}
 
+// --- styles ----------------------------------------------------------------
+
+// One stylesheet per reader document, injected on first use. Everything below
+// only sets classes and a --tl-c accent; hover, keyboard selection, sticky
+// headers and theming all live here so there are no per-element repaint
+// handlers to keep in sync.
+const CSS = `
+.tl-panel{position:fixed;box-sizing:border-box;z-index:99999;background:Canvas;color:CanvasText;
+ border:1px solid color-mix(in srgb,CanvasText 25%,Canvas);border-radius:8px;
+ box-shadow:0 6px 24px rgba(0,0,0,.28);max-height:70vh;overflow-y:auto;overflow-x:hidden;
+ font:13px system-ui,sans-serif;padding:0 0 4px;scroll-padding-top:var(--tl-top,92px)}
+.tl-msg{padding:8px 10px;color:GrayText;overflow-wrap:anywhere}
+.tl-controls{position:sticky;top:0;z-index:2;background:Canvas;padding:6px 8px;
+ border-bottom:1px solid color-mix(in srgb,CanvasText 18%,Canvas);
+ display:flex;flex-direction:column;gap:6px}
+.tl-search{width:100%;box-sizing:border-box;padding:4px 7px;font:13px system-ui,sans-serif;
+ border:1px solid color-mix(in srgb,CanvasText 28%,Canvas);border-radius:5px;
+ background:Canvas;color:CanvasText}
+.tl-chips{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+.tl-chip,.tl-btn{font:11px system-ui,sans-serif;padding:2px 8px;border-radius:10px;cursor:pointer;
+ border:1px solid color-mix(in srgb,CanvasText 25%,Canvas);background:transparent;
+ transition:background .12s,color .12s}
+.tl-chip{color:GrayText}
+.tl-btn{color:CanvasText}
+.tl-chip[aria-pressed=true]{background:color-mix(in srgb,var(--tl-c) 22%,Canvas);
+ border-color:color-mix(in srgb,var(--tl-c) 50%,Canvas);color:CanvasText}
+.tl-btn[aria-pressed=true]{background:Highlight;border-color:Highlight;color:HighlightText}
+.tl-bottom{display:flex;align-items:center;gap:6px}
+.tl-count{font:11px system-ui,sans-serif;color:GrayText;margin-left:auto}
+.tl-row{padding:6px 10px;cursor:pointer;overflow-wrap:anywhere;
+ border-left:4px solid var(--tl-c);transition:background .12s}
+.tl-row:hover{background:color-mix(in srgb,CanvasText 7%,Canvas)}
+.tl-pg{font-size:11px;color:GrayText;margin-right:6px}
+.tl-label{font-weight:700}
+.tl-rest{font-size:11px;color:GrayText;margin-top:1px;line-height:1.3;
+ white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tl-section{position:sticky;top:var(--tl-top,92px);z-index:1;padding:5px 10px;cursor:pointer;
+ overflow-wrap:anywhere;border-left:3px solid color-mix(in srgb,CanvasText 45%,Canvas);
+ background:color-mix(in srgb,CanvasText 8%,Canvas);transition:background .12s}
+.tl-section .tl-label{font-weight:600;font-size:12px}
+.tl-section[data-level="1"] .tl-label{font-weight:700;font-size:13px}
+.tl-section:hover{background:color-mix(in srgb,CanvasText 18%,Canvas)}
+.tl-sel{outline:2px solid Highlight;outline-offset:-2px}
+@media (prefers-reduced-motion:reduce){.tl-row,.tl-section,.tl-chip,.tl-btn{transition:none}}
+`;
+
+function injectCSS(doc) {
+	if (doc.getElementById("theorem-list-css")) return;
+	const style = doc.createElement("style");
+	style.id = "theorem-list-css";
+	style.textContent = CSS;
+	(doc.head || doc.documentElement).append(style);
+}
+
 // --- toolbar button --------------------------------------------------------
 
 function renderButton(event) {
 	const { reader, doc, append } = event;
+	injectCSS(doc);
 	const btn = doc.createElement("button");
 	btn.className = "toolbar-button"; // reuse reader styling if present
 	btn.title = "Theorem list";
@@ -117,8 +175,8 @@ function togglePanel(reader, doc, btn) {
 	const msg = (text) => {
 		panel.replaceChildren();
 		const row = doc.createElement("div");
+		row.className = "tl-msg";
 		row.textContent = text;
-		row.style.cssText = "padding:6px 10px;color:GrayText;white-space:normal;overflow-wrap:anywhere;";
 		panel.append(row);
 	};
 	msg("Scanning…");
@@ -134,19 +192,19 @@ function togglePanel(reader, doc, btn) {
 	});
 }
 
-// Search + type filter + color toggle, then the live-filtered list.
+// Search + type filter, then the live-filtered list.
 function buildUI(doc, panel, reader, items) {
 	panel.replaceChildren();
 	const types = [...new Set(items.map((it) => it.type))];
 	const hidden = savedHidden; // shared Set → toggles persist across opens
 
 	const controls = doc.createElement("div");
-	controls.style.cssText = "position:sticky;top:0;z-index:1;background:Canvas;padding:6px 8px;border-bottom:1px solid GrayText;display:flex;flex-direction:column;gap:6px;";
+	controls.className = "tl-controls";
 
 	const search = doc.createElement("input");
 	search.type = "search";
+	search.className = "tl-search";
 	search.placeholder = "Fuzzy filter…";
-	search.style.cssText = "width:100%;box-sizing:border-box;padding:3px 6px;font:13px sans-serif;";
 	search.value = savedQuery;
 	search.addEventListener("input", () => { savedQuery = search.value; render(); });
 	// Don't let typed keys trigger reader shortcuts; keep Escape working.
@@ -160,46 +218,36 @@ function buildUI(doc, panel, reader, items) {
 	controls.append(search);
 
 	const chipBar = doc.createElement("div");
-	chipBar.style.cssText = "display:flex;flex-wrap:wrap;gap:4px;align-items:center;";
+	chipBar.className = "tl-chips";
 	for (const t of types) {
 		const chip = doc.createElement("button");
+		chip.className = "tl-chip";
 		chip.textContent = t;
-		const base = "font:11px sans-serif;padding:2px 8px;border-radius:10px;cursor:pointer;border:1px solid GrayText;";
-		const paint = () => {
-			const on = !hidden.has(t);
-			chip.style.cssText = base + `background:${on ? (TYPE_COLORS[t] || FALLBACK_COLOR) : "transparent"};color:${on ? "#222" : "GrayText"};opacity:${on ? "1" : ".55"};`;
-		};
-		paint();
+		chip.style.setProperty("--tl-c", TYPE_COLORS[t] || FALLBACK_COLOR);
+		chip.setAttribute("aria-pressed", String(!hidden.has(t)));
 		chip.addEventListener("click", () => {
 			hidden.has(t) ? hidden.delete(t) : hidden.add(t);
-			paint();
+			chip.setAttribute("aria-pressed", String(!hidden.has(t)));
 			render();
 		});
 		chipBar.append(chip);
 	}
 	controls.append(chipBar);
 
-	const colorLabel = doc.createElement("label");
-	colorLabel.style.cssText = "font:11px sans-serif;display:flex;align-items:center;gap:5px;cursor:pointer;color:CanvasText;";
-	const colorCb = doc.createElement("input");
-	colorCb.type = "checkbox";
-	colorCb.checked = colorOn;
-	colorCb.addEventListener("change", () => { colorOn = colorCb.checked; render(); });
-	colorLabel.append(colorCb, doc.createTextNode("Color by type"));
-
 	const pin = doc.createElement("button");
+	pin.className = "tl-btn";
 	pin.title = "Pin: keep open on jump and outside click";
 	const paintPin = () => {
 		pin.textContent = pinned ? "📌 Pinned" : "📍 Pin";
-		pin.style.cssText = `font:11px sans-serif;padding:2px 8px;border-radius:10px;cursor:pointer;border:1px solid GrayText;background:${pinned ? "Highlight" : "transparent"};color:${pinned ? "HighlightText" : "CanvasText"};`;
+		pin.setAttribute("aria-pressed", String(pinned));
 	};
 	paintPin();
 	pin.addEventListener("click", () => { pinned = !pinned; paintPin(); });
 
 	const copy = doc.createElement("button");
+	copy.className = "tl-btn";
 	copy.textContent = "📋 Copy";
 	copy.title = "Copy the visible list (in order) to clipboard";
-	copy.style.cssText = "font:11px sans-serif;padding:2px 8px;border-radius:10px;cursor:pointer;border:1px solid GrayText;background:transparent;color:CanvasText;";
 	copy.addEventListener("click", () => {
 		// Bold the leading "<word> <number>" (e.g. **Theorem 1.2**, **Chapter 3**);
 		// the number is the first whitespace-token that contains a digit.
@@ -220,14 +268,18 @@ function buildUI(doc, panel, reader, items) {
 	});
 
 	const count = doc.createElement("span");
-	count.style.cssText = "font:11px sans-serif;color:GrayText;";
+	count.className = "tl-count";
 
 	const bottom = doc.createElement("div");
-	bottom.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:8px;";
-	bottom.append(colorLabel, pin, copy, count);
+	bottom.className = "tl-bottom";
+	bottom.append(pin, copy, count);
 	controls.append(bottom);
 
 	panel.append(controls);
+	// Sticky section headers park under the controls, and arrow-key scrolling
+	// must clear them — both read this. Measured once; the panel width is fixed
+	// so the chip bar can't rewrap later.
+	panel.style.setProperty("--tl-top", controls.offsetHeight + "px");
 
 	const list = doc.createElement("div");
 	panel.append(list);
@@ -237,12 +289,11 @@ function buildUI(doc, panel, reader, items) {
 	let sel = -1;     // index of the keyboard-selected row
 
 	const applySel = (i) => {
-		if (rowEls[sel]) rowEls[sel].style.outline = "";
+		if (rowEls[sel]) rowEls[sel].classList.remove("tl-sel");
 		sel = Math.max(0, Math.min(i, rowEls.length - 1));
 		const r = rowEls[sel];
 		if (!r) return;
-		r.style.outline = "2px solid Highlight";
-		r.style.outlineOffset = "-2px";
+		r.classList.add("tl-sel");
 		r.scrollIntoView({ block: "nearest" });
 	};
 
@@ -256,8 +307,8 @@ function buildUI(doc, panel, reader, items) {
 		sel = -1;
 		if (!shown.length) {
 			const none = doc.createElement("div");
+			none.className = "tl-msg";
 			none.textContent = "No matches.";
-			none.style.cssText = "padding:6px 10px;color:GrayText;";
 			list.append(none);
 			return;
 		}
@@ -275,88 +326,64 @@ function buildUI(doc, panel, reader, items) {
 
 function makeRow(doc, reader, it) {
 	if (it.isSection) return makeSectionRow(doc, reader, it);
-	const pastel = TYPE_COLORS[it.type] || FALLBACK_COLOR;
 	const r = doc.createElement("div");
-	let base = "padding:6px 10px;cursor:pointer;overflow-wrap:anywhere;";
-	if (colorOn) base += `background:${pastel};color:#222;border-left:4px solid rgba(0,0,0,.18);`;
-	r.style.cssText = base;
+	r.className = "tl-row";
+	r.style.setProperty("--tl-c", TYPE_COLORS[it.type] || FALLBACK_COLOR);
 
 	const head = doc.createElement("div");
 	const pg = doc.createElement("span");
-	pg.textContent = `p.${it.pageIndex + 1}  `;
-	pg.style.cssText = "font-size:11px;opacity:.7;"; // inherits color so hover stays readable
+	pg.className = "tl-pg";
+	pg.textContent = `p.${it.pageIndex + 1}`;
 	const label = doc.createElement("span");
+	label.className = "tl-label";
 	label.textContent = it.head;
-	label.style.fontWeight = "700";
 	head.append(pg, label);
 	r.append(head);
 
-	let sub = null;
 	if (it.rest) {
-		sub = doc.createElement("div");
+		const sub = doc.createElement("div");
+		sub.className = "tl-rest"; // one line, ellipsised — keeps the list scannable
 		sub.textContent = it.rest;
-		sub.style.cssText = `font-size:11px;color:${colorOn ? "#555" : "GrayText"};margin-top:1px;line-height:1.3;`;
+		sub.title = it.rest;
 		r.append(sub);
 	}
 
-	r.addEventListener("mouseenter", () => {
-		r.style.background = "Highlight"; r.style.color = "HighlightText";
-		if (sub) sub.style.color = "HighlightText";
-	});
-	r.addEventListener("mouseleave", () => {
-		r.style.background = colorOn ? pastel : ""; r.style.color = colorOn ? "#222" : "";
-		if (sub) sub.style.color = colorOn ? "#555" : "GrayText";
-	});
 	r.addEventListener("click", () => jumpTo(reader, it));
 	return r;
 }
 
 // Outline sections render as a structural row: indented by depth, a left rule,
-// no pastel — deliberately unlike the theorem cards, and ignores colorOn.
+// no accent stripe — deliberately unlike the theorem rows. They stick to the
+// top of the list while scrolling so the current section is always visible.
 function makeSectionRow(doc, reader, it) {
 	const r = doc.createElement("div");
-	const indent = 10 + (it.level - 1) * 14;
-	const bg = "color-mix(in srgb, CanvasText 6%, Canvas)";
-	r.style.cssText = `padding:5px 10px 5px ${indent}px;cursor:pointer;overflow-wrap:anywhere;border-left:3px solid GrayText;background:${bg};`;
+	r.className = "tl-section";
+	r.dataset.level = it.level;
+	r.style.paddingLeft = (10 + (it.level - 1) * 14) + "px";
 
 	const pg = doc.createElement("span");
-	pg.textContent = `p.${it.pageIndex + 1}  `;
-	pg.style.cssText = "font-size:11px;opacity:.6;";
+	pg.className = "tl-pg";
+	pg.textContent = `p.${it.pageIndex + 1}`;
 	const label = doc.createElement("span");
+	label.className = "tl-label";
 	label.textContent = it.head;
-	label.style.cssText = it.level === 1 ? "font-weight:700;" : "font-weight:600;font-size:12px;opacity:.85;";
 	r.append(pg, label);
 
-	r.addEventListener("mouseenter", () => { r.style.background = "Highlight"; r.style.color = "HighlightText"; pg.style.opacity = "1"; });
-	r.addEventListener("mouseleave", () => { r.style.background = bg; r.style.color = ""; pg.style.opacity = ".6"; });
 	r.addEventListener("click", () => jumpTo(reader, it));
 	return r;
 }
 
 function makePanel(reader, doc, btn) {
+	injectCSS(doc);
 	const panel = doc.createElement("div");
+	panel.className = "tl-panel";
 	const rect = btn.getBoundingClientRect();
 	const vw = (doc.defaultView && doc.defaultView.innerWidth) || 800;
 	const W = 360;
 	const left = Math.max(8, Math.min(rect.left, vw - W - 8)); // keep on screen
-	panel.style.cssText = [
-		"position:fixed",
-		`top:${rect.bottom + 4}px`,
-		`left:${left}px`,
-		`width:${W}px`,
-		"box-sizing:border-box",
-		"z-index:99999",
-		"background:Canvas",
-		"color:CanvasText",
-		"border:1px solid GrayText",
-		"border-radius:6px",
-		"box-shadow:0 2px 10px rgba(0,0,0,.25)",
-		"max-height:70vh",
-		"overflow-y:auto",
-		"overflow-x:hidden",
-		"font:13px sans-serif",
-		"padding:0 0 4px",
-	].join(";");
+	panel.style.top = `${rect.bottom + 4}px`;
+	panel.style.left = `${left}px`;
+	panel.style.width = `${W}px`;
 	doc.body.append(panel);
 
 	const onDown = (e) => {
@@ -403,7 +430,6 @@ function jumpTo(reader, it) {
 		: { pageIndex: it.pageIndex });
 	if (!pinned) closePanel();
 }
-
 // --- PDF scanning ----------------------------------------------------------
 
 async function extractTheorems(reader) {
