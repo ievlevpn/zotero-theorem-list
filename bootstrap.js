@@ -77,6 +77,12 @@ function fuzzy(q, text) {
 
 let onRenderToolbar; // kept for unregister on shutdown
 let openPanel; // { el, cleanup } of the single open popup, or null
+// Attachment id → scanned items. A PDF's text never changes, so a scan stays
+// valid for the session; keyed off the reader object's item rather than the
+// reader itself so closing and reopening a tab doesn't re-scan.
+const scanCache = new Map();
+const CACHE_MAX = 20; // ~20 MB worst case
+
 // UI state persisted across popup opens (and across documents).
 let pinned = false;         // when on, panel survives jumps and outside clicks
 let savedQuery = "";        // fuzzy filter text
@@ -89,6 +95,7 @@ function startup({ id }) {
 
 function shutdown() {
 	closePanel();
+	scanCache.clear();
 	if (onRenderToolbar && Zotero.Reader.unregisterEventListener) {
 		Zotero.Reader.unregisterEventListener("renderToolbar", onRenderToolbar);
 	}
@@ -430,10 +437,14 @@ function jumpTo(reader, it) {
 		: { pageIndex: it.pageIndex });
 	if (!pinned) closePanel();
 }
+
 // --- PDF scanning ----------------------------------------------------------
 
 async function extractTheorems(reader) {
-	if (reader.__theorems) return reader.__theorems; // cache: PDF text never changes
+	// No itemID (unexpected reader shape) → skip the cache rather than let every
+	// such reader collide on one undefined key and serve each other's results.
+	const cacheKey = reader.itemID;
+	if (cacheKey != null && scanCache.has(cacheKey)) return scanCache.get(cacheKey);
 	const win = reader?._internalReader?._primaryView?._iframeWindow;
 	const pdf = win?.PDFViewerApplication?.pdfDocument;
 	if (!pdf) return null; // not a PDF, or reader not ready
@@ -486,7 +497,12 @@ async function extractTheorems(reader) {
 	const topY = it => (it.rects && it.rects.length) ? it.rects[0][3] : Infinity;
 	out.sort((a, b) => a.pageIndex - b.pageIndex || topY(b) - topY(a) || (b.isSection ? 1 : 0) - (a.isSection ? 1 : 0));
 
-	reader.__theorems = out;
+	if (cacheKey != null) {
+		scanCache.set(cacheKey, out);
+		// Map iterates in insertion order → evict the oldest scan.
+		// ponytail: FIFO, not LRU; worst case is one needless re-scan.
+		if (scanCache.size > CACHE_MAX) scanCache.delete(scanCache.keys().next().value);
+	}
 	return out;
 }
 
