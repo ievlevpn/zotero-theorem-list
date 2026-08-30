@@ -1,0 +1,26 @@
+<vbox xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
+      xmlns:html="http://www.w3.org/1999/xhtml">
+	<html:style><![CDATA[
+		.tl-table { border-collapse: collapse; margin: 6px 0 10px; }
+		.tl-table td { padding: 2px 6px 2px 0; vertical-align: middle; }
+		.tl-kw { width: 16em; }
+		.tl-color { width: 2.6em; height: 1.6em; padding: 0; border: none; background: none; cursor: pointer; }
+		.tl-del { cursor: pointer; }
+		.tl-hint { opacity: .8; margin: 0 0 4px; max-width: 44em; }
+		.tl-actions { display: flex; gap: 6px; }
+	]]></html:style>
+	<groupbox>
+		<html:h2>Environments</html:h2>
+		<html:p class="tl-hint">Lines starting with one of these words are collected into
+			the list, and each gets a colored stripe. Matching ignores case, and keywords
+			can be in any language — add <html:em>Лемма</html:em> or
+			<html:em>Utsagn</html:em> alongside the defaults.</html:p>
+		<html:table class="tl-table">
+			<html:tbody id="tl-rows"/>
+		</html:table>
+		<html:div class="tl-actions">
+			<html:button id="tl-add" type="button">Add keyword</html:button>
+			<html:button id="tl-reset" type="button">Reset to defaults</html:button>
+		</html:div>
+	</groupbox>
+</vbox>

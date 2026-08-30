@@ -1,6 +1,6 @@
 // Self-check: node test.js  (exits non-zero on failure)
 const assert = require("assert");
-const { charsToLines, classify, fuzzy } = require("./bootstrap.js");
+const { charsToLines, classify, fuzzy, applyTypes } = require("./bootstrap.js");
 
 // --- classify: bold regime (number optional, reject section-title shape) ---
 assert.deepStrictEqual(classify("Theorem.", true), { type: "Theorem", head: "Theorem", rest: "" });
@@ -51,6 +51,19 @@ assert.strictEqual(lines[1].bold, false, "body line should not be bold");
 
 const hits = lines.map((l) => classify(l.text, l.bold)).filter(Boolean);
 assert.deepStrictEqual(hits.map((h) => h.head), ["Theorem 3.1"], "hits: " + JSON.stringify(hits));
+
+// --- classify: non-Latin keywords added via Settings -> Theorem List ---
+applyTypes([{ kw: "Лемма", color: "#4ee46a" }, { kw: "Утверждение", color: "#1e6ccc" }]);
+assert.deepStrictEqual(classify("Лемма 1.2. Пусть x", true),
+	{ type: "Лемма", head: "Лемма 1.2", rest: "Пусть x" });
+assert.deepStrictEqual(classify("Утверждение 3 (Ключевое). Для", false),
+	{ type: "Утверждение", head: "Утверждение 3 (Ключевое)", rest: "Для" });
+assert.strictEqual(classify("лемма 7. текст", false).type, "Лемма");   // case-folds in Cyrillic too
+assert.strictEqual(classify("Лемма 1.2 мы получаем", false), null);    // cross-ref: lowercase Cyrillic
+assert.strictEqual(classify("Лемма 1.2, см. выше", false), null);      // cross-ref: comma
+assert.strictEqual(classify("Theorem 3.1. Let x", true), null);        // not in the configured list
+applyTypes(null); // back to defaults for anything after this
+assert.strictEqual(classify("Theorem 3.1. Let x", true).type, "Theorem");
 
 // --- fuzzy: subsequence (caller lowercases) ---
 assert.ok(fuzzy("", "anything"));

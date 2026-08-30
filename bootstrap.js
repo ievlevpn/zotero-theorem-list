@@ -6,28 +6,64 @@
  * symlink it into Zotero's extensions dir) — see README.md.
  */
 
-// Environment keywords to list. Edit to taste (add Notation, Problem, …).
-const KEYWORDS = [
-	"Theorem", "Lemma", "Proposition", "Corollary",
-	"Definition", "Remark", "Claim", "Conjecture", "Example", "Assumption",
+// Default environments and their stripe colors. All of this is editable in
+// Settings -> Theorem List; the pref below becomes the source of truth once the
+// user changes anything. The colors were solved for maximum perceptual
+// separation (min CIEDE2000 ~17.7) so no two stripes read as the same color.
+const DEFAULT_TYPES = [
+	{ kw: "Theorem", color: "#1e6ccc" },
+	{ kw: "Lemma", color: "#4ee46a" },
+	{ kw: "Proposition", color: "#c7a126" },
+	{ kw: "Corollary", color: "#a03b9a" },
+	{ kw: "Definition", color: "#dd8024" },
+	{ kw: "Remark", color: "#828997" },
+	{ kw: "Claim", color: "#41bdc1" },
+	{ kw: "Conjecture", color: "#553add" },
+	{ kw: "Example", color: "#819f3c" },
+	{ kw: "Assumption", color: "#a23a3a" },
 ];
 
-// Accent hue per type: a 4px stripe on the row, a tint on the filter chip.
-// Spread around the wheel so neighbouring types stay distinguishable, and
-// mixed with Canvas at paint time so both light and dark themes work without
-// hardcoding text colors.
-const TYPE_COLORS = {
-	Theorem: "hsl(212 90% 52%)", Lemma: "hsl(145 62% 42%)",
-	Proposition: "hsl(28 92% 52%)", Corollary: "hsl(322 72% 55%)",
-	Definition: "hsl(48 95% 47%)", Remark: "hsl(220 9% 55%)",
-	Claim: "hsl(184 72% 42%)", Conjecture: "hsl(268 72% 60%)",
-	Example: "hsl(96 55% 42%)", Assumption: "hsl(356 78% 57%)",
-};
-const FALLBACK_COLOR = "hsl(220 9% 55%)";
+// Handed out in order to keywords added without a chosen color. Solved against
+// the defaults above, so an added type stays distinguishable from them.
+const SPARE_COLORS = ["#d4507a", "#cbd82d", "#e44ee4", "#df4f29", "#35a77b", "#269bd6"];
+
+const PREF_TYPES = "extensions.zotero.theoremList.types";
+const FALLBACK_COLOR = "#828997";
+
+// Derived from DEFAULT_TYPES or the pref; refreshed by loadTypes().
+let KEYWORDS = DEFAULT_TYPES.map((t) => t.kw);
+let TYPE_COLORS = Object.fromEntries(DEFAULT_TYPES.map((t) => [t.kw, t.color]));
+
+function applyTypes(list) {
+	const l = (list && list.length) ? list : DEFAULT_TYPES;
+	KEYWORDS = l.map((t) => t.kw);
+	TYPE_COLORS = Object.fromEntries(l.map((t) => [t.kw, t.color]));
+}
+
+// Read the pref into KEYWORDS/TYPE_COLORS. The pref is user-editable text, so
+// none of it is trusted: malformed rows are dropped and an unparseable value
+// falls back to the defaults rather than leaving the plugin with no keywords.
+function loadTypes() {
+	try {
+		const raw = Zotero.Prefs.get(PREF_TYPES, true);
+		if (raw) {
+			applyTypes(JSON.parse(raw)
+				.filter((t) => t && typeof t.kw === "string" && t.kw.trim())
+				.map((t) => ({
+					kw: t.kw.trim(),
+					color: /^#[0-9a-fA-F]{6}$/.test(t.color) ? t.color : FALLBACK_COLOR,
+				})));
+			return;
+		}
+	} catch (e) {
+		Zotero.debug("Theorem List: unreadable types pref, using defaults - " + e);
+	}
+	applyTypes(null);
+}
 
 // A label after the keyword: "3.1", "1.2.3", "A.1", "B", roman "IV", or none.
 // (Standalone letters/roman use a negative lookahead so "About"/"In" aren't labels.)
-const LABEL_RE = /^[ \t]*(\d+(?:\.\d+)*|[A-Z](?:\.\d+)+|[IVXLC]+(?![a-z])|[A-Z](?![a-z]))?[ \t]*/;
+const LABEL_RE = /^[ \t]*(\d+(?:\.\d+)*|\p{Lu}(?:\.\d+)+|[IVXLC]+(?!\p{Ll})|\p{Lu}(?!\p{Ll}))?[ \t]*/u;
 
 // Decide whether a reconstructed line is a theorem header, and split it.
 // `bold` = is the line's leading keyword set in a bold font?
@@ -40,7 +76,7 @@ const LABEL_RE = /^[ \t]*(\d+(?:\.\d+)*|[A-Z](?:\.\d+)+|[IVXLC]+(?![a-z])|[A-Z](
 // Dotted leaders ("Theorem 3.1 ...... 45") are table-of-contents entries → drop.
 function classify(text, bold) {
 	if (/\.\s*\.\s*\./.test(text)) return null; // TOC leader dots
-	const w = text.match(/^[A-Za-z]+/);
+	const w = text.match(/^\p{L}+/u); // \p{L}, not [A-Za-z]: keywords may be Cyrillic etc.
 	if (!w) return null;
 	const type = KEYWORDS.find((k) => k.toLowerCase() === w[0].toLowerCase());
 	if (!type) return null;
@@ -56,8 +92,8 @@ function classify(text, bold) {
 
 	const next = after.replace(/^\s+/, "").charAt(0);
 	const headerLike = bold
-		? (!!label || !!name || next === "" || /[.:(]/.test(next) || /[A-Z]/.test(next))
-		: ((!!label || !!name) && next !== "" && !/[a-z,;]/.test(next));
+		? (!!label || !!name || next === "" || /[.:(]/.test(next) || /\p{Lu}/u.test(next))
+		: ((!!label || !!name) && next !== "" && !/[\p{Ll},;]/u.test(next));
 	if (!headerLike) return null;
 
 	const head = [type, label, name].filter(Boolean).join(" ");
@@ -76,6 +112,8 @@ function fuzzy(q, text) {
 }
 
 let onRenderToolbar; // kept for unregister on shutdown
+let prefObserver;  // Symbol from Zotero.Prefs.registerObserver
+let prefPane;      // id from Zotero.PreferencePanes.register
 let openPanel; // { el, cleanup } of the single open popup, or null
 // Attachment id → scanned items. A PDF's text never changes, so a scan stays
 // valid for the session; keyed off the reader object's item rather than the
@@ -88,14 +126,39 @@ let pinned = false;         // when on, panel survives jumps and outside clicks
 let savedQuery = "";        // fuzzy filter text
 const savedHidden = new Set(); // type names toggled off
 
-function startup({ id }) {
+function startup({ id, rootURI }) {
+	loadTypes();
+	prefObserver = Zotero.Prefs.registerObserver(PREF_TYPES, onTypesChanged, true);
+	// The prefs pane reads these instead of duplicating the defaults.
+	Zotero.TheoremList = { DEFAULT_TYPES, SPARE_COLORS, PREF: PREF_TYPES };
+	Zotero.PreferencePanes.register({
+		pluginID: id,
+		src: rootURI + "prefs.xhtml",
+		scripts: [rootURI + "prefs.js"],
+		label: "Theorem List",
+	}).then((paneID) => { prefPane = paneID; },
+		(e) => Zotero.debug("Theorem List: prefs pane failed to register - " + e));
+
 	onRenderToolbar = (event) => renderButton(event);
 	Zotero.Reader.registerEventListener("renderToolbar", onRenderToolbar, id);
+}
+
+// Keywords or colors changed → every cached scan was produced by the old rules,
+// so drop them all and close any panel still showing the old list.
+function onTypesChanged() {
+	loadTypes();
+	scanCache.clear();
+	closePanel();
 }
 
 function shutdown() {
 	closePanel();
 	scanCache.clear();
+	if (prefObserver) Zotero.Prefs.unregisterObserver(prefObserver);
+	prefObserver = null;
+	if (prefPane) Zotero.PreferencePanes.unregister(prefPane);
+	prefPane = null;
+	delete Zotero.TheoremList;
 	if (onRenderToolbar && Zotero.Reader.unregisterEventListener) {
 		Zotero.Reader.unregisterEventListener("renderToolbar", onRenderToolbar);
 	}
@@ -586,4 +649,4 @@ function charsToLines(chars) {
 }
 
 // node-only: lets test.js import the pure helpers; no-op inside Zotero.
-if (typeof module !== "undefined") module.exports = { charsToLines, classify, fuzzy };
+if (typeof module !== "undefined") module.exports = { charsToLines, classify, fuzzy, applyTypes };

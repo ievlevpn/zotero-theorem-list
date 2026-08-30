@@ -23,7 +23,7 @@ of the list as you scroll.
 ```sh
 # Build the installable .xpi (just a zip of these files):
 cd zotero-theorem-list
-zip -r theorem-list.xpi manifest.json bootstrap.js icon.svg
+zip -r theorem-list.xpi manifest.json bootstrap.js icon.svg prefs.xhtml prefs.js
 ```
 
 Then in Zotero: **Tools → Plugins → gear icon → Install Plugin From File…**
@@ -34,9 +34,28 @@ file named `theorem-list@local` (the id from `manifest.json`) inside your Zotero
 profile's `extensions/` directory whose contents are the absolute path to this
 folder, then restart Zotero.
 
+## Settings
+
+**Zotero → Settings → Theorem List** lists the environments the plugin looks
+for, each with its stripe color:
+
+- **Add keyword** appends a row. Keywords are matched case-insensitively and can
+  be in any language — `Лемма`, `Utsagn` and `Satz` work the same as `Theorem`.
+  New rows get a color that stays distinct from the ones already in use.
+- Click a swatch to recolor any environment, built-in ones included.
+- **✕** removes a row; **Reset to defaults** restores the built-in list.
+
+Changes apply immediately — open panels close and cached scans are dropped, so
+the next open re-scans with the new keywords.
+
+The defaults are ten environments whose colors are solved for maximum
+perceptual separation (minimum CIEDE2000 distance ≈ 17.7), so no two stripes
+read as the same color at 4px wide.
+
 ## Tweak it
 
-- Edit `KEYWORDS` in `bootstrap.js` to change which environments are listed.
+- `DEFAULT_TYPES` in `bootstrap.js` seeds the settings list; `SPARE_COLORS` is
+  the sequence handed to newly added keywords.
 - `node test.js` runs the self-check for the line-grouping + matching logic.
 
 ## Caveats
@@ -45,7 +64,8 @@ folder, then restart Zotero.
   even without a number (catches `Theorem.`, `Theorem A.1`, `Theorem IV`); a
   non-bold keyword must be followed by a number/letter *and* a header-shaped
   continuation, which drops in-text cross-references (`…by Theorem 3.1 we…`) and
-  table-of-contents entries. Tune `KEYWORDS` / `classify` in `bootstrap.js`.
+  table-of-contents entries. Tune the keyword list in Settings, or `classify`
+  in `bootstrap.js`.
 - Uses the reader's internal `_internalReader._primaryView` to reach pdf.js,
   which is not a documented API — may need a touch-up across major Zotero updates.
 - PDF-only (no EPUB/snapshot).
