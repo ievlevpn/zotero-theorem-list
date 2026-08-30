@@ -1,0 +1,10 @@
+/* Registered via the `stylesheets` option rather than an inline <style>: the
+ * pane markup is parsed with MozXULElement.parseXULToFragment, and this is the
+ * documented way to style a plugin pane. */
+#tl-table { border-collapse: collapse; margin: 6px 0 10px; }
+#tl-table td { padding: 2px 6px 2px 0; vertical-align: middle; }
+#tl-table .tl-kw { width: 16em; }
+#tl-table .tl-color { width: 2.6em; height: 1.6em; padding: 0; border: none; background: none; cursor: pointer; }
+#tl-table .tl-del { cursor: pointer; }
+.tl-hint { opacity: .8; margin: 0 0 4px; max-width: 44em; }
+.tl-actions { display: flex; gap: 6px; }

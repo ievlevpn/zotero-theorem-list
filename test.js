@@ -1,6 +1,6 @@
 // Self-check: node test.js  (exits non-zero on failure)
 const assert = require("assert");
-const { charsToLines, classify, fuzzy, applyTypes, clickAction } = require("./bootstrap.js");
+const { charsToLines, classify, fuzzy, applyTypes, clickAction, CSS } = require("./bootstrap.js");
 
 // --- classify: bold regime (number optional, reject section-title shape) ---
 assert.deepStrictEqual(classify("Theorem.", true), { type: "Theorem", head: "Theorem", rest: "" });
@@ -74,6 +74,13 @@ assert.strictEqual(clickAction({ btn: null }, btnA), "replace");      // orphane
 // Regression: "replace" must not be "close" — that swallowed the click and was
 // the "sometimes the button does nothing" bug.
 assert.notStrictEqual(clickAction({ btn: btnB }, btnA), "close");
+
+// --- CSS: elements toggled via .hidden need an explicit [hidden] rule ---
+// Regression: `.tl-editor{display:flex}` is an author rule and outranks the UA
+// `[hidden]{display:none}`, so setting .hidden did nothing and the editor was
+// permanently on screen.
+assert.ok(/\.tl-editor\[hidden\]\s*\{[^}]*display:\s*none/.test(CSS),
+	".tl-editor is toggled with .hidden, so it needs its own [hidden] display:none rule");
 
 // --- fuzzy: subsequence (caller lowercases) ---
 assert.ok(fuzzy("", "anything"));

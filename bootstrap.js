@@ -160,6 +160,7 @@ function startup({ id, rootURI }) {
 		pluginID: id,
 		src: rootURI + "prefs.xhtml",
 		scripts: [rootURI + "prefs.js"],
+		stylesheets: [rootURI + "prefs.css"],
 		label: "Theorem List",
 	}).then((paneID) => { prefPane = paneID; },
 		(e) => Zotero.debug("Theorem List: prefs pane failed to register - " + e));
@@ -238,6 +239,9 @@ const CSS = `
 .tl-sel{outline:2px solid Highlight;outline-offset:-2px}
 .tl-editor{display:flex;flex-direction:column;gap:4px;padding:6px 0 2px;
  border-top:1px solid color-mix(in srgb,CanvasText 15%,Canvas)}
+/* Author display rules outrank the UA [hidden] rule; without this the
+   editor stays on screen no matter how the hidden property is set. */
+.tl-editor[hidden]{display:none}
 .tl-erow{display:flex;gap:4px;align-items:center}
 .tl-ekw{flex:1;min-width:0;box-sizing:border-box;padding:2px 6px;font:12px system-ui,sans-serif;
  border:1px solid color-mix(in srgb,CanvasText 28%,Canvas);border-radius:4px;
@@ -286,6 +290,7 @@ function togglePanel(reader, doc, btn) {
 	const action = clickAction(openPanel, btn);
 	closePanel();
 	if (action === "close") return;
+	editorOpen = false; // rarely used → always starts collapsed on a fresh open
 	loadPanel(reader, doc, makePanel(reader, doc, btn));
 }
 
@@ -470,7 +475,7 @@ function buildUI(doc, panel, reader, items) {
 
 	const types_ = doc.createElement("button");
 	types_.className = "tl-btn";
-	types_.textContent = "🎨 Types";
+	types_.textContent = "🎨";
 	types_.title = eff.custom
 		? "Keywords for this book only (in use) — cleared when Zotero restarts"
 		: "Edit keywords for this book only — not saved to Settings";
@@ -808,4 +813,4 @@ function charsToLines(chars) {
 }
 
 // node-only: lets test.js import the pure helpers; no-op inside Zotero.
-if (typeof module !== "undefined") module.exports = { charsToLines, classify, fuzzy, applyTypes, clickAction };
+if (typeof module !== "undefined") module.exports = { charsToLines, classify, fuzzy, applyTypes, clickAction, CSS };

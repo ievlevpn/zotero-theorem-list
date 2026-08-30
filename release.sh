@@ -11,7 +11,7 @@ VER=$(node -p "require('./manifest.json').version")
 
 node test.js
 rm -f "$XPI"
-zip -q -r "$XPI" manifest.json bootstrap.js icon.svg prefs.xhtml prefs.js
+zip -q -r "$XPI" manifest.json bootstrap.js icon.svg prefs.xhtml prefs.js prefs.css
 
 # Regenerate update.json so update_link always points at this version's asset.
 REPO="$REPO" node -e '

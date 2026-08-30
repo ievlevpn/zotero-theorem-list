@@ -23,7 +23,7 @@ of the list as you scroll.
 ```sh
 # Build the installable .xpi (just a zip of these files):
 cd zotero-theorem-list
-zip -r theorem-list.xpi manifest.json bootstrap.js icon.svg prefs.xhtml prefs.js
+zip -r theorem-list.xpi manifest.json bootstrap.js icon.svg prefs.xhtml prefs.js prefs.css
 ```
 
 Then in Zotero: **Tools → Plugins → gear icon → Install Plugin From File…**
@@ -50,10 +50,11 @@ the next open re-scans with the new keywords.
 
 ### Just this book
 
-**🎨 Types** in the popup opens the same editor for the current document only —
-useful when one book uses `Утверждение` or `Satz` and the rest of your library
-doesn't. Edits take effect right away; **Use global** drops the override and
-goes back to the Settings list.
+The small **🎨** button in the popup opens the same editor for the current
+document only — useful when one book uses `Утверждение` or `Satz` and the rest
+of your library doesn't. It stays collapsed until you click it, and closes again
+when you reopen the popup. Edits take effect right away; **Use global** drops the
+override and goes back to the Settings list.
 
 ![Per-book keyword editor](screenshot-perbook.png)
 
