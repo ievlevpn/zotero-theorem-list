@@ -48,6 +48,18 @@ for, each with its stripe color:
 Changes apply immediately — open panels close and cached scans are dropped, so
 the next open re-scans with the new keywords.
 
+### Just this book
+
+**🎨 Types** in the popup opens the same editor for the current document only —
+useful when one book uses `Утверждение` or `Satz` and the rest of your library
+doesn't. Edits take effect right away; **Use global** drops the override and
+goes back to the Settings list.
+
+![Per-book keyword editor](screenshot-perbook.png)
+
+This list is held in memory, not saved: it is gone when Zotero restarts, and
+that is deliberate. Settings is the place for anything you want to keep.
+
 The defaults are ten environments whose colors are solved for maximum
 perceptual separation (minimum CIEDE2000 distance ≈ 17.7), so no two stripes
 read as the same color at 4px wide.

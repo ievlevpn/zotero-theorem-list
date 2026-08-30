@@ -1,6 +1,6 @@
 // Self-check: node test.js  (exits non-zero on failure)
 const assert = require("assert");
-const { charsToLines, classify, fuzzy, applyTypes } = require("./bootstrap.js");
+const { charsToLines, classify, fuzzy, applyTypes, clickAction } = require("./bootstrap.js");
 
 // --- classify: bold regime (number optional, reject section-title shape) ---
 assert.deepStrictEqual(classify("Theorem.", true), { type: "Theorem", head: "Theorem", rest: "" });
@@ -64,6 +64,16 @@ assert.strictEqual(classify("Лемма 1.2, см. выше", false), null);    
 assert.strictEqual(classify("Theorem 3.1. Let x", true), null);        // not in the configured list
 applyTypes(null); // back to defaults for anything after this
 assert.strictEqual(classify("Theorem 3.1. Let x", true).type, "Theorem");
+
+// --- clickAction: one click always opens, even with a panel open elsewhere ---
+const btnA = { id: "a" }, btnB = { id: "b" };
+assert.strictEqual(clickAction(null, btnA), "open");
+assert.strictEqual(clickAction({ btn: btnA }, btnA), "close");        // same button toggles shut
+assert.strictEqual(clickAction({ btn: btnB }, btnA), "replace");      // another tab's panel
+assert.strictEqual(clickAction({ btn: null }, btnA), "replace");      // orphaned by a closed tab
+// Regression: "replace" must not be "close" — that swallowed the click and was
+// the "sometimes the button does nothing" bug.
+assert.notStrictEqual(clickAction({ btn: btnB }, btnA), "close");
 
 // --- fuzzy: subsequence (caller lowercases) ---
 assert.ok(fuzzy("", "anything"));
