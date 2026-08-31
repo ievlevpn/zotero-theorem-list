@@ -65,6 +65,26 @@ assert.strictEqual(classify("Theorem 3.1. Let x", true), null);        // not in
 applyTypes(null); // back to defaults for anything after this
 assert.strictEqual(classify("Theorem 3.1. Let x", true).type, "Theorem");
 
+// --- classify: whole-keyword matching (settings accepts free text) ---
+applyTypes([
+	{ kw: "Основная теорема", color: "#111111" },
+	{ kw: "Теорема", color: "#222222" },
+	{ kw: "Sub-lemma", color: "#333333" },
+	{ kw: "Thm.", color: "#444444" },
+]);
+// Multi-word and punctuated keywords used to be unmatchable: classify only ever
+// compared the leading \p{L}+ run, so anything with a space or a dot silently
+// never fired even though the settings box accepts it.
+assert.strictEqual(classify("Sub-lemma 3.1. Let x", true).head, "Sub-lemma 3.1");
+assert.strictEqual(classify("Thm. 2.4. Let y", true).head, "Thm. 2.4");
+// Longest configured keyword wins, so the general entry can't shadow the specific one.
+assert.strictEqual(classify("Основная теорема 1.2. Пусть", true).type, "Основная теорема");
+assert.strictEqual(classify("Теорема 1.1. Пусть", true).type, "Теорема");
+// A keyword ending in a letter still must not run into another letter.
+assert.strictEqual(classify("Теоремы вообще не годятся", true), null);
+applyTypes(null);
+assert.strictEqual(classify("Theorems of the trade", true), null); // unchanged
+
 // --- clickAction: one click always opens, even with a panel open elsewhere ---
 const btnA = { id: "a" }, btnB = { id: "b" };
 assert.strictEqual(clickAction(null, btnA), "open");

@@ -99,14 +99,30 @@ const LABEL_RE = /^[ \t]*(\d+(?:\.\d+)*|\p{Lu}(?:\.\d+)+|[IVXLC]+(?!\p{Ll})|\p{L
 //  - plain label → require a number/letter AND a header-shaped continuation
 //    (not a lowercase word or comma) → drops cross-refs like "Theorem 3.1 we show".
 // Dotted leaders ("Theorem 3.1 ...... 45") are table-of-contents entries → drop.
+// Longest configured keyword that prefixes `text`, case-insensitively, or null.
+// Compares a fixed-length slice rather than folding the whole line, so a case
+// fold that changes length (ß, İ) can't desynchronise the offset we slice at.
+// A keyword ending in a letter must not run into another letter, so "Theorem"
+// doesn't match "Theorems"; longest wins so "Основная теорема" beats "Теорема".
+function matchKeyword(text, keywords) {
+	let best = null;
+	for (const k of keywords) {
+		if (best && k.length <= best.length) continue;
+		if (text.slice(0, k.length).toLowerCase() !== k.toLowerCase()) continue;
+		if (/\p{L}$/u.test(k) && /\p{L}/u.test(text.charAt(k.length))) continue;
+		best = k;
+	}
+	return best;
+}
+
 function classify(text, bold, keywords = KEYWORDS) {
 	if (/\.\s*\.\s*\./.test(text)) return null; // TOC leader dots
-	const w = text.match(/^\p{L}+/u); // \p{L}, not [A-Za-z]: keywords may be Cyrillic etc.
-	if (!w) return null;
-	const type = keywords.find((k) => k.toLowerCase() === w[0].toLowerCase());
+	// Whole-keyword match, so multi-word ("Основная теорема") and punctuated
+	// ("Thm.") entries from the settings box work, not just single letter-runs.
+	const type = matchKeyword(text, keywords);
 	if (!type) return null;
 
-	const afterKw = text.slice(w[0].length);
+	const afterKw = text.slice(type.length);
 	const lm = afterKw.match(LABEL_RE);
 	const label = (lm && lm[1]) || "";
 	let after = afterKw.slice(lm[0].length);
@@ -248,6 +264,7 @@ const CSS = `
  background:Canvas;color:CanvasText}
 .tl-ecolor{flex:none;width:30px;height:22px;padding:0;border:none;background:none;cursor:pointer}
 .tl-edel{padding:2px 6px;line-height:1.2}
+.tl-edel:disabled{cursor:default;opacity:.45}
 .tl-eactions{display:flex;gap:4px}
 @media (prefers-reduced-motion:reduce){.tl-row,.tl-section,.tl-chip,.tl-btn{transition:none}}
 `;
@@ -321,7 +338,11 @@ function loadPanel(reader, doc, panel) {
 // Keyword/color editor for this book only. Edits land in `bookTypes`; changing
 // the keywords drops that book's cached scan and re-scans, while a recolor just
 // re-renders the rows.
-function makeEditor(doc, panel, reader) {
+// Keyword/color editor for this book only. Edits land in `bookTypes` and are
+// pushed to the panel through `hooks`, never by rebuilding the panel: a rebuild
+// would drop focus mid-edit and, because a text field commits on blur, could
+// destroy a row button before its own click landed on it.
+function makeEditor(doc, reader, hooks) {
 	const box = doc.createElement("div");
 	box.className = "tl-editor";
 	const rows = doc.createElement("div");
@@ -331,12 +352,23 @@ function makeEditor(doc, panel, reader) {
 		.map((r) => ({ kw: r.querySelector(".tl-ekw").value.trim(), color: r.querySelector(".tl-ecolor").value }))
 		.filter((t) => t.kw);
 
+	// At least one keyword must survive, matching the settings pane — an empty
+	// list would otherwise fall back to the defaults and look like a no-op.
+	const syncDelState = () => {
+		const only = rows.children.length <= 1;
+		for (const b of rows.querySelectorAll(".tl-edel")) {
+			b.disabled = only;
+			b.title = only ? "At least one keyword is required" : "Remove";
+		}
+	};
+
 	const apply = () => {
-		const before = typesFor(reader).keywords.join("\u0000");
+		const before = kwKey(typesFor(reader).list);
 		const list = collect();
 		bookTypes.set(reader.itemID, list);
-		if (kwKey(list) !== before) scanCache.delete(reader.itemID); // detection changed
-		loadPanel(reader, doc, panel);
+		// Detection depends only on the keywords; a recolor skips the re-scan.
+		if (kwKey(list) === before) hooks.recolor();
+		else hooks.rescan();
 	};
 
 	const addRow = (t) => {
@@ -355,17 +387,22 @@ function makeEditor(doc, panel, reader) {
 		const del = doc.createElement("button");
 		del.className = "tl-btn tl-edel";
 		del.textContent = "✕";
-		del.title = "Remove";
 		// "change" (commit on blur), not "input": no re-scan per keystroke.
 		kw.addEventListener("change", apply);
 		color.addEventListener("change", apply);
-		del.addEventListener("click", () => { r.remove(); apply(); });
+		del.addEventListener("click", () => { r.remove(); syncDelState(); apply(); });
 		r.append(kw, color, del);
 		rows.append(r);
+		syncDelState();
 		return r;
 	};
 
-	for (const t of typesFor(reader).list) addRow(t);
+	const renderRows = (list) => {
+		rows.replaceChildren();
+		for (const t of list) addRow(t);
+		syncDelState();
+	};
+	renderRows(typesFor(reader).list);
 
 	const add = doc.createElement("button");
 	add.className = "tl-btn";
@@ -382,8 +419,8 @@ function makeEditor(doc, panel, reader) {
 	reset.title = "Drop this book's list and go back to the Settings one";
 	reset.addEventListener("click", () => {
 		bookTypes.delete(reader.itemID);
-		scanCache.delete(reader.itemID);
-		loadPanel(reader, doc, panel);
+		renderRows(typesFor(reader).list); // now the global list again
+		hooks.rescan();
 	});
 
 	const actions = doc.createElement("div");
@@ -396,9 +433,8 @@ function makeEditor(doc, panel, reader) {
 // Search + type filter, then the live-filtered list.
 function buildUI(doc, panel, reader, items) {
 	panel.replaceChildren();
-	const types = [...new Set(items.map((it) => it.type))];
 	const hidden = savedHidden; // shared Set → toggles persist across opens
-	const eff = typesFor(reader); // per-book override, or the global list
+	let eff = typesFor(reader);  // per-book override, or the global list
 	const colorOf = (t) => eff.colors[t] || FALLBACK_COLOR;
 
 	const controls = doc.createElement("div");
@@ -422,19 +458,24 @@ function buildUI(doc, panel, reader, items) {
 
 	const chipBar = doc.createElement("div");
 	chipBar.className = "tl-chips";
-	for (const t of types) {
-		const chip = doc.createElement("button");
-		chip.className = "tl-chip";
-		chip.textContent = t;
-		chip.style.setProperty("--tl-c", colorOf(t));
-		chip.setAttribute("aria-pressed", String(!hidden.has(t)));
-		chip.addEventListener("click", () => {
-			hidden.has(t) ? hidden.delete(t) : hidden.add(t);
+	// Rebuilt whenever the keyword list changes, since the set of types does too.
+	const rebuildChips = () => {
+		chipBar.replaceChildren();
+		for (const t of [...new Set(items.map((it) => it.type))]) {
+			const chip = doc.createElement("button");
+			chip.className = "tl-chip";
+			chip.textContent = t;
+			chip.style.setProperty("--tl-c", colorOf(t));
 			chip.setAttribute("aria-pressed", String(!hidden.has(t)));
-			render();
-		});
-		chipBar.append(chip);
-	}
+			chip.addEventListener("click", () => {
+				hidden.has(t) ? hidden.delete(t) : hidden.add(t);
+				chip.setAttribute("aria-pressed", String(!hidden.has(t)));
+				render();
+			});
+			chipBar.append(chip);
+		}
+		measureControls(panel, controls); // chip rows may have changed height
+	};
 	controls.append(chipBar);
 
 	const pin = doc.createElement("button");
@@ -470,17 +511,18 @@ function buildUI(doc, panel, reader, items) {
 		doc.defaultView.setTimeout(() => { copy.textContent = "📋 Copy"; }, 1200);
 	});
 
-	const editor = makeEditor(doc, panel, reader);
-	editor.hidden = !editorOpen;
-
+	let editor = null; // built below, once render() exists for its hooks
 	const types_ = doc.createElement("button");
 	types_.className = "tl-btn";
 	types_.textContent = "🎨";
-	types_.title = eff.custom
-		? "Keywords for this book only (in use) — cleared when Zotero restarts"
-		: "Edit keywords for this book only — not saved to Settings";
-	// Pressed when a per-book list is active, so it's obvious this book differs.
-	types_.setAttribute("aria-pressed", String(eff.custom));
+	const paintTypes = () => {
+		types_.title = eff.custom
+			? "Keywords for this book only (in use) — cleared when Zotero restarts"
+			: "Edit keywords for this book only — not saved to Settings";
+		// Pressed when a per-book list is active, so it's obvious this book differs.
+		types_.setAttribute("aria-pressed", String(eff.custom));
+	};
+	paintTypes();
 	types_.addEventListener("click", () => {
 		editorOpen = !editorOpen;
 		editor.hidden = !editorOpen;
@@ -493,10 +535,8 @@ function buildUI(doc, panel, reader, items) {
 	const bottom = doc.createElement("div");
 	bottom.className = "tl-bottom";
 	bottom.append(pin, copy, types_, count);
-	controls.append(bottom, editor);
-
+	controls.append(bottom);
 	panel.append(controls);
-	measureControls(panel, controls);
 
 	const list = doc.createElement("div");
 	panel.append(list);
@@ -537,7 +577,36 @@ function buildUI(doc, panel, reader, items) {
 		applySel(0);
 	};
 
+	// Colors changed only: repaint stripes and chips, keep the scan and focus.
+	const recolor = () => {
+		eff = typesFor(reader);
+		paintTypes();
+		rebuildChips();
+		render();
+	};
+
+	// Keywords changed: the cached scan no longer reflects them. Re-scan and swap
+	// the items in, leaving the controls and the editor (and focus) untouched.
+	const rescan = () => {
+		scanCache.delete(reader.itemID);
+		count.textContent = "scanning…";
+		extractTheorems(reader).then((fresh) => {
+			if (!openPanel || openPanel.el !== panel) return; // closed meanwhile
+			items = fresh || [];
+			recolor();
+		}).catch((e) => {
+			Zotero.debug("Theorem List: re-scan failed - " + ((e && e.stack) || e));
+			if (openPanel && openPanel.el === panel) count.textContent = "scan failed";
+		});
+	};
+
+	editor = makeEditor(doc, reader, { recolor, rescan });
+	editor.hidden = !editorOpen;
+	controls.append(editor);
+
+	rebuildChips();
 	render();
+	measureControls(panel, controls);
 	search.focus();
 }
 
@@ -682,15 +751,21 @@ async function extractTheorems(reader) {
 	// Zotero's pdf.js fork: structured text per page, not getTextContent().
 	// The arg must be built in the reader's window or it can't be cloned to the
 	// pdf.js worker; waive Xrays to read the returned char objects.
+	// One unreadable page must not lose the whole book: a damaged or oddly
+	// encoded page yields [] and the rest of the scan carries on.
 	const scanPage = async (i) => {
-		const data = Cu.waiveXrays(await pdf.getPageData(Cu.cloneInto({ pageIndex: i }, win)));
-		const chars = data && data.chars;
 		const items = [];
-		if (chars && chars.length) {
-			for (const line of charsToLines(chars)) {
-				const hit = classify(line.text, line.bold, keywords);
-				if (hit) items.push({ type: hit.type, head: hit.head, rest: hit.rest.slice(0, 200), pageIndex: i, rects: [line.rect] });
+		try {
+			const data = Cu.waiveXrays(await pdf.getPageData(Cu.cloneInto({ pageIndex: i }, win)));
+			const chars = data && data.chars;
+			if (chars && chars.length) {
+				for (const line of charsToLines(chars)) {
+					const hit = classify(line.text, line.bold, keywords);
+					if (hit) items.push({ type: hit.type, head: hit.head, rest: hit.rest.slice(0, 200), pageIndex: i, rects: [line.rect] });
+				}
 			}
+		} catch (e) {
+			Zotero.debug(`Theorem List: page ${i + 1} unreadable, skipped - ` + e);
 		}
 		return items;
 	};
@@ -759,8 +834,11 @@ async function destToLocation(pdf, Cu, dest) {
 	try {
 		let explicit = dest;
 		if (typeof dest === "string") explicit = Cu.waiveXrays(await pdf.getDestination(dest));
-		if (!Array.isArray(explicit) || !explicit[0]) return null;
-		const pageIndex = await pdf.getPageIndex(explicit[0]); // 0-based
+		if (!Array.isArray(explicit) || explicit[0] == null) return null;
+		// dest[0] is usually a Ref, but some PDFs put a 0-based page number there.
+		// pdf.js's own link service branches on this; getPageIndex would throw.
+		const ref = explicit[0];
+		const pageIndex = typeof ref === "number" ? ref : await pdf.getPageIndex(ref);
 		const name = explicit[1] && explicit[1].name;
 		const top = name === "XYZ" ? explicit[3]
 			: (name === "FitH" || name === "FitBH") ? explicit[2]

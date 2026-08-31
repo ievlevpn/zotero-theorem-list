@@ -8,3 +8,4 @@
 #tl-table .tl-del { cursor: pointer; }
 .tl-hint { opacity: .8; margin: 0 0 4px; max-width: 44em; }
 .tl-actions { display: flex; gap: 6px; }
+#tl-table .tl-del:disabled { cursor: default; opacity: .45; }

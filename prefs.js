@@ -38,6 +38,16 @@
 			Zotero.Prefs.set(PREF, JSON.stringify(list), true);
 		};
 
+		// At least one keyword must survive: an empty list falls back to the
+		// built-in defaults, so "delete everything" would look like a no-op.
+		const syncDelState = () => {
+			const only = rowsEl.children.length <= 1;
+			for (const b of rowsEl.querySelectorAll(".tl-del")) {
+				b.disabled = only;
+				b.title = only ? "At least one keyword is required" : "Remove";
+			}
+		};
+
 		function addRow(t) {
 			const tr = h("tr");
 			const kw = h("input");
@@ -53,13 +63,12 @@
 			del.type = "button";
 			del.className = "tl-del";
 			del.textContent = "✕";
-			del.title = "Remove";
 
 			// "change" (commit on blur), not "input": avoids rewriting the pref —
 			// and dropping every cached scan — on each keystroke.
 			kw.addEventListener("change", save);
 			color.addEventListener("change", save);
-			del.addEventListener("click", () => { tr.remove(); save(); });
+			del.addEventListener("click", () => { tr.remove(); syncDelState(); save(); });
 
 			for (const el of [kw, color, del]) {
 				const td = h("td");
@@ -67,12 +76,14 @@
 				tr.append(td);
 			}
 			rowsEl.append(tr);
+			syncDelState();
 			return tr;
 		}
 
 		const render = (list) => {
 			rowsEl.replaceChildren();
 			for (const t of list) addRow(t);
+			syncDelState();
 		};
 
 		render(readPref() || DEFAULT_TYPES);

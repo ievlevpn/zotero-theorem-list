@@ -41,7 +41,11 @@ for, each with its stripe color:
 
 - **Add keyword** appends a row. Keywords are matched case-insensitively and can
   be in any language — `Лемма`, `Utsagn` and `Satz` work the same as `Theorem`.
-  New rows get a color that stays distinct from the ones already in use.
+  Multi-word (`Основная теорема`) and punctuated (`Thm.`) entries work too, and
+  the longest matching keyword wins, so a specific entry isn't shadowed by a
+  general one. New rows get a color that stays distinct from those already used.
+- The last row can't be removed — an empty list would fall back to the built-in
+  defaults, which looks like the delete did nothing.
 - Click a swatch to recolor any environment, built-in ones included.
 - **✕** removes a row; **Reset to defaults** restores the built-in list.
 
